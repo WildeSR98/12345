@@ -85,9 +85,11 @@ function Invoke-AutoUpdate12345 {
         $extractedRoot = $children[0].FullName
     }
 
-    Write-Info "Останавливаем службу zapret..."
+    Write-Info "Останавливаем службу zapret и WinDivert..."
     Stop-Zapret
     net stop zapret > $null 2>&1
+    net stop WinDivert > $null 2>&1
+    net stop WinDivert14 > $null 2>&1
 
     Write-Info "Обновляем файлы из 12345..."
     # Копируем всё с заменой (за исключением папок/файлов git)
@@ -147,9 +149,11 @@ function Invoke-AutoUpdate {
     }
 
     # ── Остановка службы перед обновлением ──────────────────────────────────────
-    Write-Info "Останавливаем службу zapret..."
+    Write-Info "Останавливаем службу zapret и WinDivert..."
     Stop-Zapret
     net stop zapret > $null 2>&1
+    net stop WinDivert > $null 2>&1
+    net stop WinDivert14 > $null 2>&1
 
     # ── 1. Обновляем bin/ — полная замена ───────────────────────────────────────
     $newBin = Join-Path $extractedRoot "bin"
