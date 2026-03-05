@@ -557,7 +557,7 @@ else {
         $ok = Invoke-AutoUpdate12345 -TargetDir $rootDir
         if ($ok) {
             # Сохраняем новый хэш
-            $remoteCommit | Out-File $localCommitFile -Encoding UTF8
+            $remoteCommit | Out-File $localCommitFile -Encoding ascii
             
             Write-OK "Обновление из 12345 завершено!"
             Write-Info "Требуется перезапуск окна автоустановки для применения новых скриптов."
@@ -565,7 +565,7 @@ else {
             Read-Host
             
             # Перезапуск autosetup.bat
-            Start-Process "cmd.exe" -ArgumentList "/c `"$($rootDir)\autosetup.bat`"" -Verb RunAs
+            Stop-Process -Id $PID -Force
             Exit 0
         }
         else {
