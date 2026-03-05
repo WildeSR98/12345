@@ -1,23 +1,49 @@
 $listsDir = Join-Path $PSScriptRoot "lists"
 
+# Проверяем существование основной папки lists
 if (-not (Test-Path $listsDir)) {
-    Write-Host "[ERROR] Directory 'lists' not found at: $listsDir" -ForegroundColor Red
+    Write-Host "[ОШИБКА] Директория 'lists' не найдена по пути: $listsDir" -ForegroundColor Red
     Exit
 }
 
-Write-Host "Checking files in 'lists' directory for duplicates and empty lines..." -ForegroundColor Cyan
+# Список целевых файлов для обработки
+$targetFiles = @(
+    "ipset-all.txt",
+    "ipset-exclude.txt",
+    "ipset-exclude-user.txt",
+    "list-exclude.txt",
+    "list-exclude-user.txt",
+    "list-general.txt",
+    "list-general-user.txt",
+    "list-google.txt"
+)
 
-$files = Get-ChildItem -Path $listsDir -Filter "*.txt" -File
+Write-Host "Поиск файлов в папке 'lists' и подпапках..." -ForegroundColor Cyan
+Write-Host "Целевые файлы: $($targetFiles -join ', ')" -ForegroundColor Gray
+Write-Host ""
+
+# Получаем файлы рекурсивно, фильтруя по именам
+$files = Get-ChildItem -Path $listsDir -Include $targetFiles -File -Recurse -ErrorAction SilentlyContinue
+
+if ($null -eq $files -or $files.Count -eq 0) {
+    Write-Host "[ПРЕДУПРЕЖДЕНИЕ] Целевые файлы не найдены." -ForegroundColor Yellow
+    Exit
+}
+
 $totalFixed = 0
+$totalProcessed = 0
 
 foreach ($file in $files) {
+    $totalProcessed++
     try {
+        # Читаем содержимое
         $lines = Get-Content -Path $file.FullName -Encoding UTF8
         
         if ($null -eq $lines) {
             continue
         }
         
+        # Если файл содержит всего одну строку, Get-Content вернет строку, а не массив
         if ($lines -is [string]) {
             $lines = @($lines)
         }
@@ -29,11 +55,13 @@ foreach ($file in $files) {
         foreach ($line in $lines) {
             $trimmedLine = $line.Trim()
             
+            # Пропускаем пустые строки
             if ([string]::IsNullOrWhiteSpace($trimmedLine)) {
                 $hasChanged = $true
                 continue
             }
             
+            # Проверка на дубликаты (без учета регистра)
             $lowerLine = $trimmedLine.ToLower()
             if (-not $seen.ContainsKey($lowerLine)) {
                 $seen[$lowerLine] = $true
@@ -44,20 +72,34 @@ foreach ($file in $files) {
             }
         }
         
+        # Если были изменения, записываем файл обратно
         if ($hasChanged) {
-            Set-Content -Path $file.FullName -Value $cleanedLines -Encoding UTF8
-            Write-Host "[ FIXED ] $($file.Name) - removed duplicates or empty lines." -ForegroundColor Green
+            # Добавляем пустую строку в конце, если файл не пустой (опционально, для чистоты)
+            if ($cleanedLines.Count -gt 0) {
+                Set-Content -Path $file.FullName -Value $cleanedLines -Encoding UTF8
+            }
+            else {
+                # Если файл стал пустым после очистки
+                Set-Content -Path $file.FullName -Value $null -Encoding UTF8
+            }
+            
+            Write-Host "[ ИСПРАВЛЕНО ] $($file.FullName)" -ForegroundColor Green
+            Write-Host "             Удалены дубликаты или пустые строки." -ForegroundColor Gray
             $totalFixed++
         }
         else {
-            Write-Host "[ OK ] $($file.Name) - clean." -ForegroundColor Yellow
+            Write-Host "[ ОК ] $($file.FullName)" -ForegroundColor Yellow
         }
     }
     catch {
-        Write-Host "[ ERROR ] Failed to process $($file.Name): $_" -ForegroundColor Red
+        Write-Host "[ ОШИБКА ] Не удалось обработать $($file.FullName): $_" -ForegroundColor Red
     }
 }
 
 Write-Host ""
-Write-Host "Done! Fixed files: $totalFixed" -ForegroundColor Cyan
+Write-Host "=========================================" -ForegroundColor Cyan
+Write-Host "Готово!" -ForegroundColor Cyan
+Write-Host "Всего обработано файлов: $totalProcessed" -ForegroundColor White
+Write-Host "Изменено файлов: $totalFixed" -ForegroundColor White
+Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host ""
