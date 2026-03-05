@@ -455,35 +455,75 @@ function Merge-ListFile {
     return , $result.ToArray()   # возвращаем как массив
 }
 
-# ── Очистка ipset-файлов от записей которые winws не принимает ──────────────────
-function Repair-IpsetFiles {
+# ── Очистка файлов списков от дубликатов, пустых строк и невалидных записей ──────
+function Repair-ListFiles {
     param([string]$ListsPath)
 
-    # Удаляем ТОЛЬКО записи которые winws точно отклоняет:
-    #   0.x.x.x/n — сеть THIS-NET (0.0.0.0/8 и подобные)
-    #   1.0.0.0/24 — конкретная запись которую winws отклоняет (баг парсера)
-    # IPv6 адреса (::1, fc00::/7, 2001::/32 и др.) — НЕ удаляем,
-    # winws поддерживает IPv6, они нужны для обхода IPv6 трафика!
+    # Паттерны для IP, которые winws точно отклоняет (0.0.0.0/8 и 1.0.0.0/x)
     $badPatterns = @(
         '^\s*0\.\d+\.\d+\.\d+',   # 0.x.x.x — THIS-NET, winws отклоняет
         '^\s*1\.0\.0\.0/'          # 1.0.0.0/x — winws отклоняет несмотря на корректность
     )
 
-    $ipsetFiles = Get-ChildItem $ListsPath -Filter "ipset-*.txt" -ErrorAction SilentlyContinue
-    foreach ($file in $ipsetFiles) {
-        $lines = Get-Content $file.FullName -Encoding UTF8 -ErrorAction SilentlyContinue
-        $cleaned = $lines | Where-Object {
-            $line = $_.Trim()
-            if ($line -eq '' -or $line.StartsWith('#')) { return $true }  # комментарии сохраняем
-            foreach ($pat in $badPatterns) {
-                if ($line -match $pat) { return $false }
+    $allFiles = Get-ChildItem $ListsPath -Filter "*.txt" -File -ErrorAction SilentlyContinue
+    foreach ($file in $allFiles) {
+        try {
+            $encoding = New-Object System.Text.UTF8Encoding($false) # UTF8 without BOM
+            $lines = [System.IO.File]::ReadAllLines($file.FullName, $encoding)
+            if ($lines.Length -eq 0) { continue }
+
+            $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            $cleaned = [System.Collections.Generic.List[string]]::new()
+            $hasChanged = $false
+            $removedInvalid = 0
+
+            foreach ($line in $lines) {
+                $trimmed = $line.Trim()
+
+                # Сохраняем комментарии, но дедуплицируем их
+                if ($trimmed.StartsWith("#")) {
+                    if ($seen.Add("__com__$trimmed")) { [void]$cleaned.Add($line) }
+                    else { $hasChanged = $true }
+                    continue
+                }
+
+                # Удаляем пустые строки
+                if ([string]::IsNullOrWhiteSpace($trimmed)) {
+                    $hasChanged = $true
+                    continue
+                }
+
+                # Для ipset-файлов проверяем на "плохие" паттерны
+                if ($file.Name.StartsWith("ipset-")) {
+                    $isBad = $false
+                    foreach ($pat in $badPatterns) {
+                        if ($trimmed -match $pat) { $isBad = $true; break }
+                    }
+                    if ($isBad) {
+                        $removedInvalid++
+                        $hasChanged = $true
+                        continue
+                    }
+                }
+
+                # Дедуплицируем основные записи
+                if ($seen.Add($trimmed)) {
+                    [void]$cleaned.Add($trimmed)
+                }
+                else {
+                    $hasChanged = $true
+                }
             }
-            return $true
+
+            if ($hasChanged) {
+                [System.IO.File]::WriteAllLines($file.FullName, $cleaned.ToArray(), $encoding)
+                $msg = "$($file.Name): очищен от дублей/пустых строк"
+                if ($removedInvalid -gt 0) { $msg += " и $removedInvalid невалидных IP" }
+                Write-OK $msg
+            }
         }
-        $removed = $lines.Count - $cleaned.Count
-        if ($removed -gt 0) {
-            [IO.File]::WriteAllLines($file.FullName, $cleaned, [Text.UTF8Encoding]::new($false))
-            Write-OK "$($file.Name): удалено $removed записей (0.x.x.x и 1.0.0.0/x — не поддерживаются winws)"
+        catch {
+            Write-Warn "Не удалось обработать $($file.Name): $_"
         }
     }
 }
@@ -627,6 +667,28 @@ else {
             Write-Info "Пропускаем обновление."
         }
     }
+}
+
+# 2.5 Проверка окружения для Proxy (Telegram)
+Write-Step "Проверка окружения для Proxy (Telegram)"
+$proxyDir = Join-Path $rootDir "tg\tg-ws-proxy-main\tg-ws-proxy-main"
+$proxyReqs = Join-Path $proxyDir "requirements.txt"
+
+if (Test-Path $proxyReqs) {
+    if (Get-Command "python" -ErrorAction SilentlyContinue) {
+        Write-OK "Python найден. Проверка библиотек для Proxy..."
+        $ans = Read-Host "   Установить/проверить зависимости через pip? (Y/N, по умолчанию N)"
+        if ($ans -match "^[Yy]") {
+            python -m pip install -r $proxyReqs
+            Write-OK "Зависимости проверены"
+        }
+    }
+    else {
+        Write-Info "Python не найден. Если вы планируете запускать Proxy из исходников (.py), установите Python."
+    }
+}
+else {
+    Write-Info "Requirements для Proxy не найдены, пропускаем"
 }
 
 Write-Step "Проверка наличия файлов"
@@ -790,9 +852,9 @@ foreach ($entry in $allLists) {
     }
 }
 
-# Очистка ipset-файлов от записей которые winws не поддерживает
-Write-Step "Очистка ipset-файлов (невалидные IP)"
-Repair-IpsetFiles -ListsPath $listsDir
+# Очистка файлов от дубликатов, пустых строк и невалидного содержимого
+Write-Step "Очистка списков (дубликаты, пустые строки, невалидные IP)"
+Repair-ListFiles -ListsPath $listsDir
 
 # 7. Обновление файла hosts
 Write-Step "Обновление файла hosts"

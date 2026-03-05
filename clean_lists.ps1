@@ -1,105 +1,66 @@
 $listsDir = Join-Path $PSScriptRoot "lists"
 
-# Проверяем существование основной папки lists
 if (-not (Test-Path $listsDir)) {
-    Write-Host "[ОШИБКА] Директория 'lists' не найдена по пути: $listsDir" -ForegroundColor Red
+    Write-Host "[ERROR] Directory 'lists' not found at: $listsDir" -ForegroundColor Red
     Exit
 }
 
-# Список целевых файлов для обработки
-$targetFiles = @(
-    "ipset-all.txt",
-    "ipset-exclude.txt",
-    "ipset-exclude-user.txt",
-    "list-exclude.txt",
-    "list-exclude-user.txt",
-    "list-general.txt",
-    "list-general-user.txt",
-    "list-google.txt"
-)
+Write-Host "Checking files in 'lists' directory for duplicates and empty lines..." -ForegroundColor Cyan
 
-Write-Host "Поиск файлов в папке 'lists' и подпапках..." -ForegroundColor Cyan
-Write-Host "Целевые файлы: $($targetFiles -join ', ')" -ForegroundColor Gray
-Write-Host ""
-
-# Получаем файлы рекурсивно, фильтруя по именам
-$files = Get-ChildItem -Path $listsDir -Include $targetFiles -File -Recurse -ErrorAction SilentlyContinue
-
-if ($null -eq $files -or $files.Count -eq 0) {
-    Write-Host "[ПРЕДУПРЕЖДЕНИЕ] Целевые файлы не найдены." -ForegroundColor Yellow
-    Exit
-}
-
+$files = Get-ChildItem -Path $listsDir -Filter "*.txt" -File -Recurse
 $totalFixed = 0
-$totalProcessed = 0
 
 foreach ($file in $files) {
-    $totalProcessed++
     try {
-        # Читаем содержимое
-        $lines = Get-Content -Path $file.FullName -Encoding UTF8
+        # Using [IO.File] for better performance and explicit encoding
+        $encoding = New-Object System.Text.UTF8Encoding($false) # UTF8 without BOM
+        $lines = [System.IO.File]::ReadAllLines($file.FullName, $encoding)
         
-        if ($null -eq $lines) {
-            continue
-        }
+        if ($lines.Length -eq 0) { continue }
         
-        # Если файл содержит всего одну строку, Get-Content вернет строку, а не массив
-        if ($lines -is [string]) {
-            $lines = @($lines)
-        }
-        
-        $cleanedLines = @()
-        $seen = @{}
+        $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $cleanedLines = [System.Collections.Generic.List[string]]::new()
         $hasChanged = $false
         
         foreach ($line in $lines) {
-            $trimmedLine = $line.Trim()
+            $trimmed = $line.Trim()
             
-            # Пропускаем пустые строки
-            if ([string]::IsNullOrWhiteSpace($trimmedLine)) {
+            # Keep comments as they are, but check for duplicate comments if they are exactly the same
+            if ($trimmed.StartsWith("#")) {
+                if ($seen.Add("__comment__$trimmed")) {
+                    $cleanedLines.Add($line) # Keep original line with leading spaces if any
+                } else {
+                    $hasChanged = $true
+                }
+                continue
+            }
+            
+            # Skip empty or whitespace-only lines
+            if ([string]::IsNullOrWhiteSpace($trimmed)) {
                 $hasChanged = $true
                 continue
             }
             
-            # Проверка на дубликаты (без учета регистра)
-            $lowerLine = $trimmedLine.ToLower()
-            if (-not $seen.ContainsKey($lowerLine)) {
-                $seen[$lowerLine] = $true
-                $cleanedLines += $trimmedLine
-            }
-            else {
+            # Deduplicate by normalized (trimmed, lowercase) key
+            if ($seen.Add($trimmed)) {
+                $cleanedLines.Add($trimmed)
+            } else {
                 $hasChanged = $true
             }
         }
         
-        # Если были изменения, записываем файл обратно
-        if ($hasChanged) {
-            # Добавляем пустую строку в конце, если файл не пустой (опционально, для чистоты)
-            if ($cleanedLines.Count -gt 0) {
-                Set-Content -Path $file.FullName -Value $cleanedLines -Encoding UTF8
-            }
-            else {
-                # Если файл стал пустым после очистки
-                Set-Content -Path $file.FullName -Value $null -Encoding UTF8
-            }
-            
-            Write-Host "[ ИСПРАВЛЕНО ] $($file.FullName)" -ForegroundColor Green
-            Write-Host "             Удалены дубликаты или пустые строки." -ForegroundColor Gray
+        if ($hasChanged -or ($lines.Length -ne $cleanedLines.Count)) {
+            [System.IO.File]::WriteAllLines($file.FullName, $cleanedLines.ToArray(), $encoding)
+            Write-Host "[ FIXED ] $($file.FullName) - removed duplicates or empty lines." -ForegroundColor Green
             $totalFixed++
         }
         else {
-            Write-Host "[ ОК ] $($file.FullName)" -ForegroundColor Yellow
+            Write-Host "[ OK ] $($file.Name) - clean." -ForegroundColor Yellow
         }
     }
     catch {
-        Write-Host "[ ОШИБКА ] Не удалось обработать $($file.FullName): $_" -ForegroundColor Red
+        Write-Host "[ ERROR ] Failed to process $($file.Name): $_" -ForegroundColor Red
     }
 }
 
-Write-Host ""
-Write-Host "=========================================" -ForegroundColor Cyan
-Write-Host "Готово!" -ForegroundColor Cyan
-Write-Host "Всего обработано файлов: $totalProcessed" -ForegroundColor White
-Write-Host "Изменено файлов: $totalFixed" -ForegroundColor White
-Write-Host "=========================================" -ForegroundColor Cyan
-Write-Host ""
+Write-Host "`nDone! Fixed files: $totalFixed" -ForegroundColor Cyan
