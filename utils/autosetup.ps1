@@ -560,13 +560,12 @@ else {
             $remoteCommit | Out-File $localCommitFile -Encoding ascii
             
             Write-OK "Обновление из 12345 завершено!"
-            Write-Info "Требуется перезапуск окна автоустановки для применения новых скриптов."
-            Write-Host "`nОкно будет перезапущено автоматически (нажмите любую клавишу)..." -ForegroundColor Cyan
-            [void][System.Console]::ReadKey($true)
+            Write-Info "Требуется перезапуск скрипта для применения обновлений."
+            Write-Host "`nНажмите Enter для выхода... После этого запустите autosetup.bat заново." -ForegroundColor Cyan
+            Read-Host
             
-            # Перезапуск autosetup.bat (возвращаем код 99 для bat-скрипта)
             Stop-Process -Id $PID -Force
-            Exit 99
+            Exit 0
         }
         else {
             Write-Err "Обновление 12345 не удалось. Продолжаем со старой версией."
