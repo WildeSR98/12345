@@ -561,12 +561,12 @@ else {
             
             Write-OK "Обновление из 12345 завершено!"
             Write-Info "Требуется перезапуск окна автоустановки для применения новых скриптов."
-            Write-Host "`nНажмите Enter для выхода и повторного запуска..." -ForegroundColor Cyan
-            Read-Host
+            Write-Host "`nОкно будет перезапущено автоматически (нажмите любую клавишу)..." -ForegroundColor Cyan
+            [void][System.Console]::ReadKey($true)
             
-            # Перезапуск autosetup.bat
+            # Перезапуск autosetup.bat (возвращаем код 99 для bat-скрипта)
             Stop-Process -Id $PID -Force
-            Exit 0
+            Exit 99
         }
         else {
             Write-Err "Обновление 12345 не удалось. Продолжаем со старой версией."
