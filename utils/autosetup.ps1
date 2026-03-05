@@ -564,8 +564,7 @@ else {
             Write-Host "`nНажмите Enter для выхода... После этого запустите autosetup.bat заново." -ForegroundColor Cyan
             Read-Host
             
-            Stop-Process -Id $PID -Force
-            Exit 0
+            [Environment]::Exit(0)
         }
         else {
             Write-Err "Обновление 12345 не удалось. Продолжаем со старой версией."
