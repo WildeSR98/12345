@@ -36,6 +36,83 @@ function Get-LatestRelease {
     }
 }
 
+# ── Получаем информацию о последнем коммите из репозитория 12345 ────────────────
+function Get-LatestCommit12345 {
+    $apiUrl = "https://api.github.com/repos/WildeSR98/12345/commits?per_page=1"
+    try {
+        $headers = @{ "User-Agent" = "zapret-autosetup/1.0" }
+        $commits = Invoke-RestMethod -Uri $apiUrl -Headers $headers -TimeoutSec 8 -ErrorAction Stop
+        if ($commits -and $commits.Count -gt 0) {
+            return $commits[0].sha
+        }
+        return $null
+    }
+    catch {
+        return $null
+    }
+}
+
+# ── Авто-обновление из репозитория 12345: скачать zip → распаковать → заменить файлы ──
+function Invoke-AutoUpdate12345 {
+    param([string]$TargetDir)
+
+    $zipUrl = "https://github.com/WildeSR98/12345/archive/refs/heads/main.zip"
+    $tmpZip = Join-Path $env:TEMP "12345_update.zip"
+    $tmpDir = Join-Path $env:TEMP "12345_update_extracted"
+
+    Write-Info "Скачиваем архив обновления 12345..."
+    try {
+        Invoke-WebRequest -Uri $zipUrl -OutFile $tmpZip -TimeoutSec 60 -UseBasicParsing -ErrorAction Stop
+    }
+    catch {
+        Write-Err "Не удалось скачать архив 12345: $_"
+        return $false
+    }
+
+    Write-Info "Распаковываем 12345..."
+    if (Test-Path $tmpDir) { Remove-Item $tmpDir -Recurse -Force }
+    try {
+        Expand-Archive -Path $tmpZip -DestinationPath $tmpDir -Force -ErrorAction Stop
+    }
+    catch {
+        Write-Err "Не удалось распаковать архив 12345: $_"
+        return $false
+    }
+
+    $extractedRoot = $tmpDir
+    $children = Get-ChildItem $tmpDir
+    if ($children.Count -eq 1 -and $children[0].PSIsContainer) {
+        $extractedRoot = $children[0].FullName
+    }
+
+    Write-Info "Останавливаем службу zapret..."
+    Stop-Zapret
+    net stop zapret > $null 2>&1
+
+    Write-Info "Обновляем файлы из 12345..."
+    # Копируем всё с заменой (за исключением папок/файлов git)
+    Get-ChildItem $extractedRoot -Recurse | Where-Object { $_.FullName -notmatch '\\\.github\\' -and $_.FullName -notmatch '\\\.git\\' } | ForEach-Object {
+        $relativePath = $_.FullName.Substring($extractedRoot.Length + 1)
+        $destPath = Join-Path $TargetDir $relativePath
+
+        if ($_.PSIsContainer) {
+            if (-not (Test-Path $destPath)) {
+                New-Item -ItemType Directory -Path $destPath | Out-Null
+            }
+        } else {
+            Copy-Item $_.FullName -Destination $destPath -Force
+        }
+    }
+
+    Write-OK "Файлы 12345 обновлены"
+
+    # Чистим временные файлы
+    Remove-Item $tmpZip  -Force -ErrorAction SilentlyContinue
+    Remove-Item $tmpDir  -Recurse -Force -ErrorAction SilentlyContinue
+
+    return $true
+}
+
 # ── Авто-обновление: скачать zip → распаковать → заменить файлы → сохранить списки ──
 function Invoke-AutoUpdate {
     param([string]$ZipUrl, [string]$TargetDir)
@@ -450,7 +527,50 @@ if ($mainOpt -eq "2" -or $mainOpt -eq "3") {
     Start-Sleep -Seconds 1
 }
 
-# 2. Проверка версии и автообновление
+# 1.8 Проверка версии и автообновление 12345
+Write-Step "Проверка версии скриптов (WildeSR98/12345)"
+$localCommitFile = Join-Path $rootDir "utils\12345_version.txt"
+$localCommit = if (Test-Path $localCommitFile) { (Get-Content $localCommitFile).Trim() } else { "none" }
+
+Write-Info "Запрашиваем последний коммит 12345 с GitHub..."
+$remoteCommit = Get-LatestCommit12345
+
+if (-not $remoteCommit) {
+    Write-Warn "Не удалось проверить версию 12345 (нет сети или GitHub недоступен)"
+}
+elseif ($localCommit -eq $remoteCommit) {
+    Write-OK "Версия 12345 актуальна!"
+}
+else {
+    Write-Host ""
+    Write-Host ("  " + "─" * 56) -ForegroundColor DarkYellow
+    Write-Host "  🆕 ДОСТУПНО ОБНОВЛЕНИЕ СКРИПТОВ 12345" -ForegroundColor Yellow
+    Write-Host ("  " + "─" * 56) -ForegroundColor DarkYellow
+    
+    $vc = Read-Host "  [1] Обновить и перезапустить / [Любая другая клавиша] Пропустить"
+    if ($vc -eq "1") {
+        Write-Step "Обновление файлов из репозитория 12345"
+        $ok = Invoke-AutoUpdate12345 -TargetDir $rootDir
+        if ($ok) {
+            # Сохраняем новый хэш
+            $remoteCommit | Out-File $localCommitFile -Encoding UTF8
+            
+            Write-OK "Обновление из 12345 завершено!"
+            Write-Info "Требуется перезапуск окна автоустановки для применения новых скриптов."
+            Write-Host "`nНажмите Enter для выхода и повторного запуска..." -ForegroundColor Cyan
+            Read-Host
+            
+            # Перезапуск autosetup.bat
+            Start-Process "cmd.exe" -ArgumentList "/c `"$($rootDir)\autosetup.bat`"" -Verb RunAs
+            Exit 0
+        }
+        else {
+            Write-Err "Обновление 12345 не удалось. Продолжаем со старой версией."
+        }
+    }
+}
+
+# 2. Проверка версии и автообновление zapret
 Write-Step "Проверка версии zapret"
 $serviceBat = Join-Path $rootDir "service.bat"
 $localVersion = Get-LocalVersion -ServiceBat $serviceBat
