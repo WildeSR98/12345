@@ -1,0 +1,6 @@
+cryptography
+pystray
+Pillow
+customtkinter
+pyinstaller
+psutil
