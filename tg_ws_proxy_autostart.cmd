@@ -19,16 +19,25 @@ if !errorlevel! neq 0 (
     exit /b 0
 )
 
-rem Define application paths. Now looking for the EXE in the same folder as this script.
-set "PROXY_EXE=%~dp0TgWsProxy.exe"
-set "PROXY_DIR=%~dp0"
+rem Search for TgWsProxy.exe starting from current directory down into subfolders
+set "PROXY_EXE="
+set "PROXY_DIR="
+
+for /r "%~dp0" %%F in (TgWsProxy.exe) do (
+    if exist "%%F" (
+        set "PROXY_EXE=%%F"
+        set "PROXY_DIR=%%~dpF"
+        goto :found
+    )
+)
+
+:found
 set "TASK_NAME=TgWsProxy_AutoStart"
 
 rem Verify existence of the executable
-if not exist "%PROXY_EXE%" (
-    echo [ОШИБКА] Файл TgWsProxy.exe не найден по пути:
-    echo "%PROXY_EXE%"
-    echo Пожалуйста, убедитесь, что приложение собрано или путь указан верно.
+if not defined PROXY_EXE (
+    echo [ОШИБКА] Файл TgWsProxy.exe не найден в текущей папке или подпапках:
+    echo "%~dp0"
     pause
     exit /b 1
 )
