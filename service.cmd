@@ -6,7 +6,26 @@ rem Version: 1.9.7b
 rem ============================================================================
 set "LOCAL_VERSION=1.9.7b"
 
-:: External commands
+setlocal EnableDelayedExpansion
+cd /d "%~dp0"
+
+:: Check for Administrator privileges
+net session >nul 2>&1
+if %errorLevel% neq 0 (
+    if "%1"=="admin" (
+        echo [ERROR] Failed to obtain administrator rights.
+        pause
+        exit /b 1
+    )
+    echo Requesting admin rights...
+    powershell -NoProfile -Command "Start-Process 'cmd.exe' -ArgumentList '/c \"\"%~f0\" admin %*\"' -Verb RunAs"
+    exit /b
+)
+
+:: If elevated, shift the 'admin' flag
+if "%1"=="admin" shift
+
+:: Process external commands
 if "%~1"=="status_zapret" (
     call :test_service zapret soft
     call :tcp_enable
@@ -42,27 +61,6 @@ if "%~1"=="load_user_lists" (
     exit /b
 )
 
-if "%1"=="admin" (
-    call :check_command chcp
-    call :check_command find
-    call :check_command findstr
-    call :check_command netsh
-    
-    call :load_user_lists
-
-    echo Started with admin rights
-) else (
-    call :check_extracted
-    call :check_command powershell
-
-    echo Requesting admin rights...
-    powershell -NoProfile -Command "Start-Process 'cmd.exe' -ArgumentList '/c \"\"%~f0\" admin\"' -Verb RunAs"
-    exit
-)
-
-
-:: MENU ================================
-setlocal EnableDelayedExpansion
 :menu
 cls
 call :ipset_switch_status
@@ -366,7 +364,7 @@ sc delete %SRVCNAME% >nul 2>&1
 sc create %SRVCNAME% binPath= "\"%BIN_PATH%winws.exe\" !ARGS!" DisplayName= "zapret" start= auto
 sc description %SRVCNAME% "Zapret DPI bypass software"
 sc start %SRVCNAME%
-for %%F in ("!file%choice%!") do (
+for %%F in ("!selectedFile!") do (
     set "filename=%%~nF"
 )
 reg add "HKLM\System\CurrentControlSet\Services\zapret" /v zapret-discord-youtube /t REG_SZ /d "!filename!" /f

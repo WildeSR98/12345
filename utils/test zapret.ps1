@@ -367,10 +367,10 @@ if ($originalIpsetStatus -ne "any") {
 
 # Check if zapret service installed
 if (Test-ZapretServiceConflict) {
-    Write-Host "[ERROR] Windows service 'zapret' is installed" -ForegroundColor Red
-    Write-Host "         Remove the service before running tests" -ForegroundColor Yellow
-    Write-Host "         Open service.bat and choose 'Remove Services'" -ForegroundColor Yellow
-    $hasErrors = $true
+    Write-Host "[INFO] Windows service 'zapret' is installed. Stopping it to prevent conflicts during testing..." -ForegroundColor Cyan
+    Stop-Service -Name "zapret" -Force -ErrorAction SilentlyContinue
+    # Also kill winws to be sure
+    Get-Process -Name "winws" -ErrorAction SilentlyContinue | Stop-Process -Force
 }
 
 if ($hasErrors) {
