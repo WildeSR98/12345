@@ -1,15 +1,11 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
-rem ============================================================================
-rem TgWsProxy Auto-start Task Creation Script
-rem Description: Creates a Windows Scheduled Task to run TgWsProxy.exe at logon
-rem              with highest privileges.
-rem ============================================================================
+rem UTF-8 Codepage constant
+set /a "CP_UTF8=65001"
 
-
-rem Set UTF-8 encoding for Cyrillic support in console
-chcp 65001 >nul
+rem Use UTF-8 for Cyrillic support in console
+chcp %CP_UTF8% >nul
 
 rem Check for Administrator privileges
 net session >nul 2>&1
@@ -23,14 +19,13 @@ rem Search for TgWsProxy.exe starting from current directory down into subfolder
 set "PROXY_EXE="
 set "PROXY_DIR="
 
-for /r "%~dp0" %%F in (TgWsProxy.exe) do (
-    if exist "%%F" (
-        set "PROXY_EXE=%%F"
-        set "PROXY_DIR=%%~dpF"
-        goto :found
-    )
+for /r "%~dp0" %%F in (TgWsProxy.exe*) do (
+    set "PROXY_EXE=%%F"
+    set "PROXY_DIR=%%~dpF"
+    goto :found
 )
 
+rem Target found: sets variables and continues task processing
 :found
 set "TASK_NAME=TgWsProxy_AutoStart"
 
@@ -48,18 +43,22 @@ echo [INFO] Рабочая директория: "%PROXY_DIR%"
 
 rem Use PowerShell to register the scheduled task safely
 rem We use bypass to ensure the command runs regardless of local environment policy
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+powershell -NoProfile -ExecutionPolicy RemoteSigned -Command ^
     "$Action = New-ScheduledTaskAction -Execute $env:PROXY_EXE -WorkingDirectory $env:PROXY_DIR;" ^
-    "$Trigger = New-ScheduledTaskTrigger -AtLogOn;" ^
+    "$Triggers = @();" ^
+    "$Triggers += New-ScheduledTaskTrigger -AtLogOn;" ^
+    "$Triggers += New-ScheduledTaskTrigger -AtStartup;" ^
+    "$Triggers += New-CimInstance -ClassName MSFT_ScheduledTaskTrigger -Property @{TriggerType=11; StateChange=8; Enabled=$True} -ClientOnly;" ^
     "$Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries" ^
     " -MultipleInstances IgnoreNew -ExecutionTimeLimit 0;" ^
-    "Register-ScheduledTask -TaskName $env:TASK_NAME -Action $Action -Trigger $Trigger" ^
+    "Register-ScheduledTask -TaskName $env:TASK_NAME -Action $Action -Trigger $Triggers" ^
     " -Settings $Settings -RunLevel Highest -Force | Out-Null"
 
 if !errorlevel! equ 0 (
     echo.
     echo [УСПЕХ] Задача автозапуска успешно создана!
-    echo Теперь TgWsProxy будет запускаться автоматически при входе в систему.
+    echo Теперь TgWsProxy будет запускаться автоматически при запуске системы,
+    echo а также при входе и разблокировке.
     echo Настройка "IgnoreNew" предотвратит запуск дубликатов процесса.
 ) else (
     echo.
