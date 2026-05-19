@@ -1,4 +1,4 @@
-﻿#requires -Version 5.1
+#requires -Version 5.1
 # =============================================================================
 #  Strategy.psm1  |  BAT file discovery, strategy testing, selection
 # =============================================================================
@@ -10,7 +10,8 @@ Import-Module "$PSScriptRoot\Service.psm1" -Global -ErrorAction SilentlyContinue
 # -- Get list of strategy BAT files --------------------------------------------
 function Get-BatFiles {
     param([string]$RootDir)
-    return Get-ChildItem -Path $RootDir -Filter "general*.bat" |
+    $strategiesDir = Join-Path $RootDir "strategies"
+    return Get-ChildItem -Path $strategiesDir -Filter "general*.bat" |
         Sort-Object { [Regex]::Replace($_.Name, '(\d+)', { $args[0].Value.PadLeft(8, '0') }) }
 }
 

@@ -1,4 +1,4 @@
-﻿#requires -Version 5.1
+#requires -Version 5.1
 # =============================================================================
 #  Update.psm1  |  GitHub updates, commits, transactions, hashes
 # =============================================================================
@@ -122,8 +122,14 @@ function Invoke-AutoUpdate {
                 Copy-Item "$newBin\*" -Destination (Join-Path $TargetDir "bin") -Recurse -Force -ErrorAction Stop
                 Write-OK "bin/ updated"
             }
+            $strategiesDir = Join-Path $TargetDir "strategies"
+            if (-not (Test-Path $strategiesDir)) { New-Item -ItemType Directory -Path $strategiesDir -Force | Out-Null }
+            Get-ChildItem $extractedRoot -Filter "general*.bat" |
+                ForEach-Object {
+                    Copy-Item $_.FullName -Destination (Join-Path $strategiesDir $_.Name) -Force -ErrorAction Stop
+                }
             Get-ChildItem $extractedRoot -Filter "*.bat" |
-                Where-Object { $_.Name -notlike "autosetup*" } |
+                Where-Object { $_.Name -notlike "autosetup*" -and $_.Name -notlike "general*" } |
                 ForEach-Object {
                     Copy-Item $_.FullName -Destination (Join-Path $TargetDir $_.Name) -Force -ErrorAction Stop
                 }

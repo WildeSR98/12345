@@ -201,7 +201,7 @@ set "LISTS_PATH=%~dp0lists\"
 
 echo Выберите один из вариантов:
 set "count=0"
-for /f "delims=" %%F in ('powershell -NoProfile -Command "Get-ChildItem -LiteralPath '.' -Filter '*.bat' | Where-Object { $_.Name -notlike 'service*' -and $_.Name -notlike 'autosetup*' -and $_.Name -notlike 'git-sync*' } | Sort-Object { [Regex]::Replace($_.Name, '(\d+)', { $args[0].Value.PadLeft(8, '0') }) } | ForEach-Object { $_.Name }"') do (
+for /f "delims=" %%F in ('powershell -NoProfile -Command "Get-ChildItem -LiteralPath 'strategies' -Filter 'general*.bat' | Sort-Object { [Regex]::Replace($_.Name, '(\d+)', { $args[0].Value.PadLeft(8, '0') }) } | ForEach-Object { $_.Name }"') do (
     set /a count+=1
     echo !count!. %%F
     set "file!count!=%%F"
@@ -214,7 +214,7 @@ if "!choice!"=="" (
     pause
     goto menu
 )
-set "selectedFile=!file%choice%!"
+set "selectedFile=strategies\!file%choice%!"
 if not defined selectedFile (
     echo Неверный выбор, выход...
     pause

@@ -1,16 +1,16 @@
-@echo off
+﻿@echo off
 chcp 65001 > nul
 :: 65001 - UTF-8
 
-cd /d "%~dp0"
-call service.bat status_zapret
-call service.bat check_updates
-call service.bat load_game_filter
-call service.bat load_user_lists
+cd /d "%~dp0.."
+call "%~dp0..\service.bat" status_zapret
+call "%~dp0..\service.bat" check_updates
+call "%~dp0..\service.bat" load_game_filter
+call "%~dp0..\service.bat" load_user_lists
 echo:
 
-set "BIN=%~dp0bin\"
-set "LISTS=%~dp0lists\"
+set "BIN=%~dp0..\bin\"
+set "LISTS=%~dp0..\lists\"
 if not defined GameFilterTCP set "GameFilterTCP=12"
 if not defined GameFilterUDP set "GameFilterUDP=12"
 cd /d "%BIN%"
