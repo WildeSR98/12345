@@ -3,7 +3,7 @@
 #  Lists.psm1  |  Merge, repair, CIDR validation, overlap removal, hosts
 # =============================================================================
 
-Import-Module "$PSScriptRoot\Utils.psm1" -Force -Global
+Import-Module "$PSScriptRoot\Utils.psm1" -Global -ErrorAction SilentlyContinue
 
 # -- Merge list file -----------------------------------------------------------
 function Merge-ListFile {

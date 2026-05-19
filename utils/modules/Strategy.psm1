@@ -3,9 +3,9 @@
 #  Strategy.psm1  |  BAT file discovery, strategy testing, selection
 # =============================================================================
 
-Import-Module "$PSScriptRoot\Utils.psm1" -Force -Global
-Import-Module "$PSScriptRoot\Diagnostics.psm1" -Force -Global
-Import-Module "$PSScriptRoot\Service.psm1" -Force -Global
+Import-Module "$PSScriptRoot\Utils.psm1" -Global -ErrorAction SilentlyContinue
+Import-Module "$PSScriptRoot\Diagnostics.psm1" -Global -ErrorAction SilentlyContinue
+Import-Module "$PSScriptRoot\Service.psm1" -Global -ErrorAction SilentlyContinue
 
 # -- Get list of strategy BAT files --------------------------------------------
 function Get-BatFiles {

@@ -3,7 +3,7 @@
 #  Service.psm1  |  Управление службой zapret, WinDivert, Game Filter
 # =============================================================================
 
-Import-Module "$PSScriptRoot\Utils.psm1" -Force -Global
+Import-Module "$PSScriptRoot\Utils.psm1" -Global -ErrorAction SilentlyContinue
 
 # -- Остановка winws.exe -------------------------------------------------------
 function Stop-ZapretProcess {
