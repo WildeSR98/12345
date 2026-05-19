@@ -20,8 +20,8 @@ class Program
         Console.OutputEncoding = System.Text.Encoding.UTF8;
         Console.Title = "Zapret Manager";
 
-        // Detect root dir — exe is placed in 12345-main root
-        RootDir  = AppContext.BaseDirectory.TrimEnd('\\', '/');
+        // Detect root dir: search for strategies/ starting from exe dir, walking up
+        RootDir  = DetectRootDir();
         BinDir   = Path.Combine(RootDir, "bin");
         ListsDir = Path.Combine(RootDir, "lists");
         UtilsDir = Path.Combine(RootDir, "utils");
@@ -549,6 +549,26 @@ class Program
             System.Diagnostics.Process.Start(psi)?.WaitForExit(3000);
         }
         catch { }
+    }
+
+    /// <summary>
+    /// Walk up from exe directory to find the root that contains strategies/ folder.
+    /// Falls back to exe directory if not found.
+    /// </summary>
+    static string DetectRootDir()
+    {
+        var dir = AppContext.BaseDirectory.TrimEnd('\\', '/');
+        var candidate = dir;
+        for (int i = 0; i < 5; i++)
+        {
+            if (Directory.Exists(Path.Combine(candidate, "strategies")))
+                return candidate;
+            var parent = Path.GetDirectoryName(candidate);
+            if (parent == null || parent == candidate) break;
+            candidate = parent;
+        }
+        // Not found via walk-up — use exe dir (strategies/ should be copied there by build)
+        return dir;
     }
 
     static FileInfo[] ParseSelection(string input, FileInfo[] files)

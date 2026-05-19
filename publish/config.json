@@ -1,0 +1,68 @@
+{
+  "project": {
+    "name": "Zapret Autosetup",
+    "version": "2.0.0",
+    "description": "Automated Zapret installation, configuration and updates"
+  },
+  "repositories": {
+    "zapret_core": {
+      "owner": "Flowseal",
+      "repo": "zapret-discord-youtube",
+      "release_api": "https://api.github.com/repos/Flowseal/zapret-discord-youtube/releases/latest",
+      "version_url": "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/main/.service/version.txt",
+      "download_page": "https://github.com/Flowseal/zapret-discord-youtube/releases/latest",
+      "ipset_service": "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/refs/heads/main/.service/ipset-service.txt",
+      "hosts_service": "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/refs/heads/main/.service/hosts"
+    },
+    "scripts_12345": {
+      "owner": "WildeSR98",
+      "repo": "12345",
+      "commit_api": "https://api.github.com/repos/WildeSR98/12345/commits?per_page=1",
+      "archive_url": "https://github.com/WildeSR98/12345/archive/refs/heads/main.zip"
+    }
+  },
+  "lists": {
+    "base_url": "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/refs/heads/main/lists",
+    "files": [
+      { "local": "ipset-all.txt", "remote": ".service/ipset-service.txt", "stub": "# Add IPs/subnets here, e.g.: 1.2.3.4/32", "user": false },
+      { "local": "ipset-exclude.txt", "remote": "lists/ipset-exclude.txt", "stub": "# Add IP exclusions here, e.g.: 10.0.0.0/8", "user": false },
+      { "local": "ipset-exclude-user.txt", "remote": "", "stub": "# Your personal IP exclusions", "user": true },
+      { "local": "list-general.txt", "remote": "lists/list-general.txt", "stub": "# Add domains here, e.g.: example.com", "user": false },
+      { "local": "list-google.txt", "remote": "lists/list-google.txt", "stub": "# Add Google domains here", "user": false },
+      { "local": "list-exclude.txt", "remote": "lists/list-exclude.txt", "stub": "# Add excluded domains here", "user": false },
+      { "local": "list-general-user.txt", "remote": "", "stub": "# Your personal domains", "user": true },
+      { "local": "list-exclude-user.txt", "remote": "", "stub": "# Your personal domain exclusions", "user": true }
+    ]
+  },
+  "diagnostics": {
+    "check_targets": [
+      { "name": "discord.com", "type": "url", "url": "https://discord.com", "host": "discord.com" },
+      { "name": "youtube.com", "type": "url", "url": "https://www.youtube.com", "host": "www.youtube.com" },
+      { "name": "gateway.discord", "type": "url", "url": "https://gateway.discord.gg", "host": "gateway.discord.gg" },
+      { "name": "googlevideo.com", "type": "ping", "url": "", "host": "googlevideo.com" }
+    ],
+    "conflicting_services": ["GoodbyeDPI", "discordfix_zapret", "winws1", "winws2"],
+    "dpi_suite_url": "https://hyperion-cs.github.io/dpi-checkers/ru/tcp-16-20/suite.json"
+  },
+  "backup": {
+    "keep_count": 5,
+    "include_patterns": ["bin\\*", "*.bat", "utils\\*", "lists\\*"],
+    "exclude_patterns": ["*-user*", "autosetup.ps1", "logs\\*", "backups\\*"]
+  },
+  "strategies": {
+    "json_path": "strategies.json",
+    "preferred": [
+      "general (FAKE TLS AUTO).bat",
+      "general (FAKE TLS AUTO ALT).bat",
+      "general (ALT).bat",
+      "general.bat"
+    ]
+  },
+  "features": {
+    "powershell7_preferred": true,
+    "parallel_downloads": true,
+    "remove_cidr_overlap": true,
+    "hash_verification": false,
+    "verbose_logging": false
+  }
+}
