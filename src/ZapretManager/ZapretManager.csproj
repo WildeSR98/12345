@@ -9,6 +9,7 @@
     <AssemblyName>zapret-manager</AssemblyName>
     <RootNamespace>ZapretManager</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
   <ItemGroup>
