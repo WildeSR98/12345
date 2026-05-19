@@ -1,4 +1,4 @@
-﻿#requires -Version 5.1
+#requires -Version 5.1
 # =============================================================================
 #  Lists.psm1  |  Merge, repair, CIDR validation, overlap removal, hosts
 # =============================================================================
@@ -14,7 +14,7 @@ function Merge-ListFile {
     }
     $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     $result = [System.Collections.Generic.List[string]]::new()
-    foreach ($line in ($NewLines + $oldLines)) {
+    foreach ($line in ($oldLines + $NewLines)) {
         $trimmed = $line.TrimEnd()
         $key = $trimmed.Trim()
         if ($key -eq '' -or $key.StartsWith('#')) {

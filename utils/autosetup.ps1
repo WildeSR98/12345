@@ -1,4 +1,4 @@
-﻿#requires -Version 5.1
+#requires -Version 5.1
 # =============================================================================
 #  ZAPRET AUTO-SETUP v2.1
 # =============================================================================
@@ -50,7 +50,7 @@ foreach ($mod in $modules) {
         exit 1
     }
     try {
-        Import-Module $modPath -Force -ErrorAction Stop | Out-Null
+        Import-Module $modPath -Force -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
         $modulesLoaded += $mod
     }
     catch {

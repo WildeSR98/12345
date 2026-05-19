@@ -124,6 +124,7 @@ exit /b
 :: СТАТУС ==============================
 :service_status
 cls
+chcp 437 > nul
 sc query "zapret" >nul 2>&1
 if !errorlevel!==0 (
     for /f "tokens=2*" %%A in ('reg query "HKLM\System\CurrentControlSet\Services\zapret" /v zapret-discord-youtube 2^>nul') do echo Стратегия службы установлена из "%%B"
@@ -144,6 +145,7 @@ pause
 goto menu
 
 :test_service
+chcp 437 > nul
 set "ServiceName=%~1"
 set "ServiceStatus="
 for /f "tokens=3 delims=: " %%A in ('sc query "%ServiceName%" ^| findstr /i "STATE"') do set "ServiceStatus=%%A"
@@ -161,6 +163,7 @@ if "%ServiceStatus%"=="RUNNING" (
 ) else if not "%~2"=="soft" (
     echo Служба "%ServiceName%" НЕ запущена.
 )
+chcp 65001 > nul
 exit /b
 
 :: УДАЛЕНИЕ ==============================
@@ -191,6 +194,7 @@ goto menu
 :: УСТАНОВКА =============================
 :service_install
 cls
+chcp 437 > nul
 cd /d "%~dp0"
 set "BIN_PATH=%~dp0bin\"
 set "LISTS_PATH=%~dp0lists\"

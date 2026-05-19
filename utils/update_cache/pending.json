@@ -1,6 +1,7 @@
 ﻿{
-    "commit":  "599932ea94cf1e6544e7ef3c410aeb300be17aa7",
-    "timestamp":  "2026-05-19T16:46:53.1951817+03:00",
-    "version":  "599932e",
-    "type":  "12345"
+    "timestamp":  "2026-05-19T16:50:31.0511396+03:00",
+    "releasePage":  "https://github.com/Flowseal/zapret-discord-youtube/releases/tag/1.9.8c",
+    "version":  "1.9.8c",
+    "type":  "zapret",
+    "zipPath":  "C:\\Users\\KnyshovDmitry\\Downloads\\12345-main\\12345-main\\utils\\update_cache\\zapret_update.zip"
 }
