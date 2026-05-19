@@ -67,6 +67,136 @@ public static class GitHubUpdater
     }
 }
 
+/// <summary>
+/// Downloads upstream Flowseal/zapret-discord-youtube archive and refreshes
+/// our local <c>strategies/</c> folder. Upstream ships general*.bat in the
+/// archive root with paths relative to that root (<c>%~dp0bin\</c>,
+/// <c>%~dp0lists\</c>, <c>call service.bat ...</c>); our fork moved the bats
+/// into a <c>strategies/</c> subfolder, so each line is rewritten to reach the
+/// repo root via <c>%~dp0..\</c>. We only touch general*.bat and
+/// bin/version.txt — everything else (bin/, lists/, service.bat) stays.
+/// </summary>
+public static class StrategyUpdater
+{
+    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(2) };
+
+    static StrategyUpdater()
+    {
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd("zapret-manager/2.0");
+    }
+
+    public static async Task<int> UpdateFromUpstreamAsync(
+        string rootDir, string? archiveUrl, string? remoteVersion = null)
+    {
+        if (string.IsNullOrWhiteSpace(archiveUrl))
+            throw new InvalidOperationException("archive_url не задан в config.json (repositories.zapret_core.archive_url)");
+
+        var strategiesDir = Path.Combine(rootDir, "strategies");
+        var binDir        = Path.Combine(rootDir, "bin");
+        Directory.CreateDirectory(strategiesDir);
+        Directory.CreateDirectory(binDir);
+
+        var tmpZip = Path.Combine(Path.GetTempPath(), $"zapret_upstream_{Guid.NewGuid():N}.zip");
+        var tmpDir = Path.Combine(Path.GetTempPath(), $"zapret_upstream_{Guid.NewGuid():N}");
+        try
+        {
+            Logger.Info($"Скачивание архива: {archiveUrl}");
+            var bytes = await _http.GetByteArrayAsync(archiveUrl);
+            await File.WriteAllBytesAsync(tmpZip, bytes);
+
+            Directory.CreateDirectory(tmpDir);
+            ZipFile.ExtractToDirectory(tmpZip, tmpDir);
+
+            // GitHub archive wraps everything in a single top-level dir
+            // (e.g. zapret-discord-youtube-main/). Pick it up.
+            var topLevel = Directory.EnumerateDirectories(tmpDir).FirstOrDefault()
+                ?? throw new InvalidOperationException("Архив пуст или повреждён");
+
+            var upstreamBats = Directory.EnumerateFiles(topLevel, "general*.bat", SearchOption.TopDirectoryOnly)
+                .OrderBy(p => p)
+                .ToList();
+            if (upstreamBats.Count == 0)
+                throw new InvalidOperationException("В архиве не найдено ни одного general*.bat");
+
+            int updated = 0;
+            foreach (var srcPath in upstreamBats)
+            {
+                var name        = Path.GetFileName(srcPath);
+                var dstPath     = Path.Combine(strategiesDir, name);
+                var srcContent  = await File.ReadAllTextAsync(srcPath, System.Text.Encoding.UTF8);
+                var transformed = TransformForSubfolder(srcContent);
+
+                // UTF-8 without BOM, CRLF (matches .gitattributes and existing files).
+                await File.WriteAllTextAsync(dstPath, transformed,
+                    new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                updated++;
+            }
+
+            // Mark the new local version so subsequent CheckZapretCoreAsync
+            // calls return Remote == Local.
+            if (!string.IsNullOrWhiteSpace(remoteVersion))
+            {
+                await File.WriteAllTextAsync(Path.Combine(binDir, "version.txt"),
+                    remoteVersion.Trim() + "\r\n",
+                    new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            }
+
+            Logger.Ok($"Обновлено стратегий из апстрима: {updated}");
+            return updated;
+        }
+        finally
+        {
+            try { if (File.Exists(tmpZip)) File.Delete(tmpZip); } catch { }
+            try { if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, recursive: true); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// Rewrites the upstream .bat header so it works from a strategies/
+    /// subfolder. The transformations exactly mirror the diff between
+    /// upstream Flowseal/zapret-discord-youtube general*.bat files and the
+    /// versions originally committed to this repo (c2cafe2,
+    /// "refactor: move 19 general*.bat strategies to strategies/ subfolder").
+    /// </summary>
+    public static string TransformForSubfolder(string content)
+    {
+        // Normalise line endings before processing, then re-emit as CRLF.
+        content = content.Replace("\r\n", "\n").Replace("\r", "\n");
+
+        // 1. cd /d "%~dp0"            → cd /d "%~dp0.."
+        content = content.Replace(
+            "cd /d \"%~dp0\"\n",
+            "cd /d \"%~dp0..\"\n");
+
+        // 2. call service.bat <X>     → call "%~dp0..\service.bat" <X>
+        //    (four lines: status_zapret, check_updates, load_game_filter, load_user_lists)
+        content = System.Text.RegularExpressions.Regex.Replace(
+            content,
+            @"^call service\.bat ",
+            @"call ""%~dp0..\service.bat"" ",
+            System.Text.RegularExpressions.RegexOptions.Multiline);
+
+        // 3. set "BIN=%~dp0bin\"      → set "BIN=%~dp0..\bin\"
+        content = content.Replace(
+            "set \"BIN=%~dp0bin\\\"",
+            "set \"BIN=%~dp0..\\bin\\\"");
+
+        // 4. set "LISTS=%~dp0lists\"  → set "LISTS=%~dp0..\lists\"
+        content = content.Replace(
+            "set \"LISTS=%~dp0lists\\\"",
+            "set \"LISTS=%~dp0..\\lists\\\"");
+
+        // 5. cd /d %BIN%              → GameFilter defaults + cd /d "%BIN%"
+        content = content.Replace(
+            "cd /d %BIN%\n",
+            "if not defined GameFilterTCP set \"GameFilterTCP=12\"\n"
+          + "if not defined GameFilterUDP set \"GameFilterUDP=12\"\n"
+          + "cd /d \"%BIN%\"\n");
+
+        return content.Replace("\n", "\r\n");
+    }
+}
+
 public static class BackupManager
 {
     public static string Create(string rootDir, int keepCount = 5)

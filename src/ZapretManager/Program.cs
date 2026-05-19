@@ -481,9 +481,20 @@ class Program
             if (remote != null && remote != local)
             {
                 ConsoleMenu.WriteWarn($"Доступна новая версия zapret: {remote} (у вас: {local ?? "?"})");
-                var dlPage = Cfg.Repositories.ZapretCore.DownloadPage ?? "";
-                if (!silent && !string.IsNullOrWhiteSpace(dlPage) && ConsoleMenu.Confirm("Открыть страницу загрузки?"))
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dlPage) { UseShellExecute = true });
+                if (!silent && ConsoleMenu.Confirm("Обновить стратегии из апстрима?"))
+                {
+                    try
+                    {
+                        var archiveUrl = Cfg.Repositories.ZapretCore.ArchiveUrl;
+                        var count = await StrategyUpdater.UpdateFromUpstreamAsync(RootDir, archiveUrl, remote);
+                        ConsoleMenu.WriteOk($"Стратегии обновлены до {remote} (файлов: {count})");
+                    }
+                    catch (Exception ex)
+                    {
+                        ConsoleMenu.WriteError($"Не удалось обновить стратегии: {ex.Message}");
+                        Logger.Error($"StrategyUpdater: {ex}");
+                    }
+                }
             }
         }
         catch { }

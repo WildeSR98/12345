@@ -33,9 +33,15 @@ public static class WinServiceManager
     [DllImport("advapi32.dll", SetLastError = true)]
     private static extern bool CloseServiceHandle(IntPtr handle);
 
-    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern bool ChangeServiceDescription(IntPtr svc,
-        ref SERVICE_DESCRIPTIONW desc);
+    // Real API is ChangeServiceConfig2W with SERVICE_CONFIG_DESCRIPTION (1).
+    // (There is no Win32 export named "ChangeServiceDescription" — calling it
+    // throws EntryPointNotFoundException at runtime.)
+    [DllImport("advapi32.dll", EntryPoint = "ChangeServiceConfig2W",
+        CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool ChangeServiceConfig2(IntPtr svc, uint infoLevel,
+        ref SERVICE_DESCRIPTIONW info);
+
+    private const uint SERVICE_CONFIG_DESCRIPTION = 1;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct SERVICE_STATUS
@@ -88,9 +94,16 @@ public static class WinServiceManager
 
             if (svc == IntPtr.Zero) return false;
 
-            // Set description
-            var desc = new SERVICE_DESCRIPTIONW { Description = description };
-            ChangeServiceDescription(svc, ref desc);
+            // Set description (cosmetic — keep going if it fails).
+            try
+            {
+                var desc = new SERVICE_DESCRIPTIONW { Description = description };
+                ChangeServiceConfig2(svc, SERVICE_CONFIG_DESCRIPTION, ref desc);
+            }
+            catch (Exception ex)
+            {
+                Core.Logger.Warn($"ChangeServiceConfig2 не удалось: {ex.Message}");
+            }
 
             StartService(svc, 0, null);
             CloseServiceHandle(svc);

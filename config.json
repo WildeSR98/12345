@@ -11,6 +11,7 @@
       "release_api": "https://api.github.com/repos/Flowseal/zapret-discord-youtube/releases/latest",
       "version_url": "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/main/.service/version.txt",
       "download_page": "https://github.com/Flowseal/zapret-discord-youtube/releases/latest",
+      "archive_url": "https://github.com/Flowseal/zapret-discord-youtube/archive/refs/heads/main.zip",
       "ipset_service": "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/refs/heads/main/.service/ipset-service.txt",
       "hosts_service": "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/refs/heads/main/.service/hosts"
     },

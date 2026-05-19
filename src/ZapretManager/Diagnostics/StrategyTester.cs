@@ -41,38 +41,43 @@ public static class StrategyTester
             Console.WriteLine($"\n  [{i + 1}/{files.Length}] {file.Name}");
             Console.ResetColor();
 
-            // Parse args from bat
-            var args = Service.StrategyReader.ParseArgs(
-                file.FullName, binDir, listsDir, gf.Tcp, gf.Udp);
-
-            // Stop any running winws
-            Service.ProcessManager.KillAll();
-
-            // Install and start temporary service
-            var binPath = $"\"{winwsExe}\" {args}";
-            Service.WinServiceManager.Remove(TestServiceName);
-            await Task.Delay(300);
-            Service.WinServiceManager.Install(TestServiceName, "Zapret Test", "Temporary test", binPath, autoStart: false);
-            await Task.Delay(3000); // Let it initialize
-
-            // Run access checks
-            var accessResults = await AccessChecker.CheckAllAsync(targets);
-            int ok   = accessResults.Count(r => r.Reachable);
-            int fail = accessResults.Count(r => !r.Reachable);
-
-            // Print results
-            foreach (var r in accessResults)
+            try
             {
-                if (r.Reachable) ConsoleMenu.WriteOk($"{r.Name}: {r.Detail}");
-                else             ConsoleMenu.WriteWarn($"{r.Name}: недоступен");
+                var args = Service.StrategyReader.ParseArgs(
+                    file.FullName, binDir, listsDir, gf.Tcp, gf.Udp);
+
+                Service.ProcessManager.KillAll();
+
+                var binPath = $"\"{winwsExe}\" {args}";
+                Service.WinServiceManager.Remove(TestServiceName);
+                await Task.Delay(300);
+                Service.WinServiceManager.Install(TestServiceName, "Zapret Test", "Temporary test", binPath, autoStart: false);
+                await Task.Delay(3000);
+
+                var accessResults = await AccessChecker.CheckAllAsync(targets);
+                int ok   = accessResults.Count(r => r.Reachable);
+                int fail = accessResults.Count(r => !r.Reachable);
+
+                foreach (var r in accessResults)
+                {
+                    if (r.Reachable) ConsoleMenu.WriteOk($"{r.Name}: {r.Detail}");
+                    else             ConsoleMenu.WriteWarn($"{r.Name}: недоступен");
+                }
+
+                results.Add(new(file.Name, file.FullName, ok, fail));
             }
-
-            results.Add(new(file.Name, file.FullName, ok, fail));
-
-            // Stop and remove test service
-            Service.WinServiceManager.Remove(TestServiceName);
-            Service.ProcessManager.KillAll();
-            await Task.Delay(500);
+            catch (Exception ex)
+            {
+                ConsoleMenu.WriteError($"Ошибка при тесте {file.Name}: {ex.Message}");
+                Core.Logger.Error($"StrategyTester[{file.Name}]: {ex}");
+                results.Add(new(file.Name, file.FullName, 0, targets.Count));
+            }
+            finally
+            {
+                try { Service.WinServiceManager.Remove(TestServiceName); } catch { }
+                try { Service.ProcessManager.KillAll(); } catch { }
+                await Task.Delay(500);
+            }
         }
 
         return results;
@@ -84,6 +89,7 @@ public static class StrategyTester
     public static void PrintSummary(List<StrategyScore> scores)
     {
         ConsoleMenu.WriteHeader("РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ");
+        if (scores.Count == 0) { ConsoleMenu.WriteWarn("Нет результатов"); return; }
         int maxLen = scores.Max(s => s.Name.Length);
         foreach (var s in scores.OrderByDescending(s => s.Ok))
         {
