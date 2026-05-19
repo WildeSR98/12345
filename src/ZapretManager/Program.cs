@@ -24,6 +24,7 @@ class Program
         BinDir   = Path.Combine(RootDir, "bin");
         ListsDir = Path.Combine(RootDir, "lists");
         UtilsDir = Path.Combine(RootDir, "utils");
+        Directory.CreateDirectory(UtilsDir);
 
         Cfg = AppConfig.Load(RootDir);
         Logger.Init(RootDir, Cfg.Features.VerboseLogging);

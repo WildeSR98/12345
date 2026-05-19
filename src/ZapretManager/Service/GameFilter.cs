@@ -21,6 +21,7 @@ public static class GameFilter
 
     public static void Set(string utilsDir, string mode)
     {
+        Directory.CreateDirectory(utilsDir);
         var flag = Path.Combine(utilsDir, "game_filter.enabled");
         if (mode == "disabled")
         {
