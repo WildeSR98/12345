@@ -20,7 +20,7 @@
         "runtime": {
           "runtimes/win/lib/net8.0/System.Diagnostics.EventLog.Messages.dll": {
             "assemblyVersion": "10.0.0.0",
-            "fileVersion": "0.0.0.0"
+            "fileVersion": "10.0.826.23019"
           },
           "runtimes/win/lib/net8.0/System.Diagnostics.EventLog.dll": {
             "assemblyVersion": "10.0.0.0",
