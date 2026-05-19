@@ -3,8 +3,8 @@
 #  Update.psm1  |  GitHub updates, commits, transactions, hashes
 # =============================================================================
 
-Import-Module "$PSScriptRoot\Utils.psm1" -Force
-Import-Module "$PSScriptRoot\Service.psm1" -Force
+Import-Module "$PSScriptRoot\Utils.psm1" -Force -Global
+Import-Module "$PSScriptRoot\Service.psm1" -Force -Global
 
 # -- Local version from service.bat --------------------------------------------
 function Get-LocalVersion {
@@ -144,7 +144,7 @@ function Invoke-AutoUpdate {
             }
             $newLists = Join-Path $extractedRoot "lists"
             if (Test-Path $newLists -and $ListsDir) {
-                Import-Module "$PSScriptRoot\Lists.psm1" -Force
+                Import-Module "$PSScriptRoot\Lists.psm1" -Force -Global
                 Get-ChildItem $newLists -Filter "*.txt" |
                     Where-Object { $_.Name -notlike "*-user*" } |
                     ForEach-Object {
@@ -242,8 +242,8 @@ function Start-BackgroundUpdateCheck {
     Start-Job -Name "ZapretUpdateCheck" -ScriptBlock {
         param($rootDir, $listsDir, $psScriptRoot, $serviceBatPath, $flagDir)
         try {
-            Import-Module "$psScriptRoot\modules\Utils.psm1" -Force
-            Import-Module "$psScriptRoot\modules\Update.psm1" -Force
+            Import-Module "$psScriptRoot\modules\Utils.psm1" -Force -Global
+            Import-Module "$psScriptRoot\modules\Update.psm1" -Force -Global
 
             $cacheFile = Join-Path $flagDir "pending.json"
             $pending = $null

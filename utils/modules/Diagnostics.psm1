@@ -3,8 +3,8 @@
 #  Diagnostics.psm1  |  Tests, conflicts, DPI checks, reports
 # =============================================================================
 
-Import-Module "$PSScriptRoot\Utils.psm1" -Force
-Import-Module "$PSScriptRoot\Service.psm1" -Force
+Import-Module "$PSScriptRoot\Utils.psm1" -Force -Global
+Import-Module "$PSScriptRoot\Service.psm1" -Force -Global
 
 # -- URL test via curl ---------------------------------------------------------
 function Test-Url {
