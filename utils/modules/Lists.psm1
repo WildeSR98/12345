@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 # =============================================================================
 #  Lists.psm1  |  Merge, repair, CIDR validation, overlap removal, hosts
 # =============================================================================
