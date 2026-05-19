@@ -1,0 +1,28 @@
+# Logs and runtime data
+logs/
+*.log
+
+# Backups
+backups/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Build artifacts
+build/
+dist/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+Thumbs.db
+desktop.ini
+*.tmp
+
+# Archive copies
+*.zip
+*.7z
+*.rar
