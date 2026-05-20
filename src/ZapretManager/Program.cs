@@ -74,6 +74,8 @@ class Program
     static void PrintMenuHeader()
     {
         var version = Cfg.Project.Version;
+        var mgrVer  = GitHubUpdater.ReadManagerVersion(RootDir) ?? version;
+        var coreVer = ReadLocalCoreVersion();
         var state   = WinServiceManager.GetState("zapret");
         var strategy = GetCurrentStrategy();
         var gf       = GameFilter.StatusLabel(UtilsDir);
@@ -84,8 +86,9 @@ class Program
         Console.ForegroundColor = ConsoleColor.DarkCyan;
         Console.WriteLine("\n  ╔══════════════════════════════════════════════════════════╗");
         Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.WriteLine($"  ║  МЕНЕДЖЕР СЛУЖБЫ ZAPRET v{version,-34}║");
+        Console.WriteLine($"  ║  МЕНЕДЖЕР СЛУЖБЫ ZAPRET                                 ║");
         Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"  ║  Manager: v{mgrVer,-12}  Zapret Core: {coreVer,-14}║");
         Console.WriteLine($"  ║  Служба: {state,-18}  Стратегия: {strategy,-16}║");
         Console.ForegroundColor = ConsoleColor.DarkCyan;
         Console.WriteLine("  ╚══════════════════════════════════════════════════════════╝");
@@ -301,6 +304,8 @@ class Program
     {
         Console.Clear();
         ConsoleMenu.WriteHeader("ПРОВЕРКА ОБНОВЛЕНИЙ");
+        ConsoleMenu.WriteInfo($"Текущие версии: Manager v{GitHubUpdater.ReadManagerVersion(RootDir) ?? "не определена"} | Zapret Core {ReadLocalCoreVersion()}");
+        Console.WriteLine();
 
         // ── Этап 1: Проверка обновлений zapret-manager ──
         ConsoleMenu.WriteStep("Этап 1: Проверка обновлений zapret-manager...");
@@ -318,7 +323,7 @@ class Program
         }
         else
         {
-            ConsoleMenu.WriteWarn($"Доступна новая версия manager: v{mgrRemote} (у вас: v{mgrLocal ?? "?"})");
+            ConsoleMenu.WriteWarn($"Доступна новая версия manager: v{mgrRemote} (у вас: v{mgrLocal ?? "не определена"})");
             if (mgrDownloadUrl != null && ConsoleMenu.Confirm("Обновить zapret-manager?"))
             {
                 var updated = await GitHubUpdater.UpdateManagerAsync(mgrDownloadUrl, RootDir, mgrRemote);
@@ -347,7 +352,7 @@ class Program
         }
         else
         {
-            ConsoleMenu.WriteWarn($"Доступна новая версия zapret core: {remote} (у вас: {local ?? "неизвестна"})");
+            ConsoleMenu.WriteWarn($"Доступна новая версия zapret core: {remote} (у вас: {local ?? "не установлена"})");
             if (ConsoleMenu.Confirm("Обновить файлы zapret core (bin, strategies, lists)?"))
             {
                 await GitHubUpdater.UpdateZapretCoreFilesAsync(Cfg, RootDir);
@@ -599,7 +604,10 @@ class Program
 
         Console.Clear();
         Console.Title = "Zapret Auto-Setup";
-        ConsoleMenu.WriteHeader("ZAPRET AUTO-SETUP v2.1");
+        var mgrVer  = GitHubUpdater.ReadManagerVersion(RootDir) ?? Cfg.Project.Version;
+        var coreVer = ReadLocalCoreVersion();
+        ConsoleMenu.WriteHeader($"ZAPRET AUTO-SETUP");
+        ConsoleMenu.WriteInfo($"Manager: v{mgrVer}  |  Zapret Core: {coreVer}");
         ConsoleMenu.WriteInfo($"Рабочая папка: {RootDir}");
         ConsoleMenu.WriteInfo($".NET: {Environment.Version}");
 
@@ -635,7 +643,7 @@ class Program
             var (mgrRemote, mgrLocal, mgrDownloadUrl) = await managerUpdateTask;
             if (mgrRemote != null && mgrRemote != mgrLocal)
             {
-                ConsoleMenu.WriteWarn($"Доступна новая версия zapret-manager: v{mgrRemote} (у вас: v{mgrLocal ?? "?"})");
+                ConsoleMenu.WriteWarn($"Доступна новая версия zapret-manager: v{mgrRemote} (у вас: v{mgrLocal ?? "не определена"})");
                 if (!silent && mgrDownloadUrl != null && ConsoleMenu.Confirm("Обновить zapret-manager?"))
                 {
                     var updated = await GitHubUpdater.UpdateManagerAsync(mgrDownloadUrl, RootDir, mgrRemote);
@@ -656,7 +664,7 @@ class Program
             var (remote, local) = await coreUpdateTask;
             if (remote != null && remote != local)
             {
-                ConsoleMenu.WriteWarn($"Доступна новая версия zapret core: {remote} (у вас: {local ?? "?"})");
+                ConsoleMenu.WriteWarn($"Доступна новая версия zapret core: {remote} (у вас: {local ?? "не установлена"})");
                 if (!silent && ConsoleMenu.Confirm("Обновить файлы zapret core (bin, strategies, lists)?"))
                 {
                     await GitHubUpdater.UpdateZapretCoreFilesAsync(Cfg, RootDir);
@@ -750,8 +758,18 @@ class Program
         // Обновление hosts
         ConsoleMenu.WriteStep("Обновление файла hosts");
         var hostsUrl = Cfg.Repositories.ZapretCore.HostsService ?? "";
-        if (!string.IsNullOrWhiteSpace(hostsUrl)) await HostsUpdater.CheckAndUpdate(hostsUrl);
+        if (!string.IsNullOrWhiteSpace(hostsUrl))
+        {
+            var hostsNeedsUpdate = await HostsUpdater.CheckAndUpdate(hostsUrl);
+            if (hostsNeedsUpdate)
+                ConsoleMenu.WriteWarn("Файл hosts требует обновления — открыт в Блокноте для ручного слияния");
+            else
+                ConsoleMenu.WriteOk("Файл hosts актуален");
+        }
         else ConsoleMenu.WriteInfo("URL hosts не настроен в config.json — пропуск");
+
+        // Синхронизация publish/lists с основной lists/
+        SyncPublishLists();
 
         // Проверка доступности БЕЗ обхода
         ConsoleMenu.WriteStep("Проверка доступности сайтов БЕЗ обхода");
@@ -1020,6 +1038,17 @@ class Program
         return dir;
     }
 
+    static string ReadLocalCoreVersion()
+    {
+        var vf = Path.Combine(BinDir, "version.txt");
+        if (File.Exists(vf))
+        {
+            var ver = File.ReadAllText(vf).Trim();
+            if (!string.IsNullOrEmpty(ver)) return ver;
+        }
+        return "не установлен";
+    }
+
     static FileInfo[] ParseSelection(string input, FileInfo[] files)
     {
         var result = new List<FileInfo>();
@@ -1029,5 +1058,23 @@ class Program
                 result.Add(files[n - 1]);
         }
         return result.ToArray();
+    }
+
+    /// <summary>Sync lists/ → publish/lists/ so the publish directory stays up to date.</summary>
+    static void SyncPublishLists()
+    {
+        var publishLists = Path.Combine(RootDir, "publish", "lists");
+        if (!Directory.Exists(publishLists)) return; // publish/ doesn't exist, skip
+
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(ListsDir, "*.txt"))
+            {
+                var dest = Path.Combine(publishLists, Path.GetFileName(file));
+                File.Copy(file, dest, overwrite: true);
+            }
+            Logger.Info("publish/lists/ синхронизирован с lists/");
+        }
+        catch (Exception ex) { Logger.Warn($"Синхронизация publish/lists не удалась: {ex.Message}"); }
     }
 }

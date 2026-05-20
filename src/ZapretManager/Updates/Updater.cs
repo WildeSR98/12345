@@ -336,6 +336,38 @@ public static class GitHubUpdater
                 ConsoleMenu.WriteOk($"ipset-all.txt обновлён ({merged.Length} строк)");
             }
 
+            // 6. Update hosts from .service/hosts
+            var srcHosts = Path.Combine(extractedDir, ".service", "hosts");
+            if (File.Exists(srcHosts))
+            {
+                ConsoleMenu.WriteStep("Проверка файла hosts из .service/hosts...");
+                var hostsContent = await File.ReadAllTextAsync(srcHosts);
+                var hostsPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.System),
+                    @"drivers\etc\hosts");
+                var existingHosts = File.Exists(hostsPath) 
+                    ? File.ReadAllText(hostsPath) : "";
+                var hostsLines = hostsContent.Split('\n')
+                    .Select(l => l.TrimEnd('\r').Trim())
+                    .Where(l => l.Length > 0);
+                if (hostsLines.Any(l => !existingHosts.Contains(l, StringComparison.OrdinalIgnoreCase)))
+                    ConsoleMenu.WriteWarn("Файл hosts требует обновления — используйте пункт меню 8");
+                else
+                    ConsoleMenu.WriteOk("Файл hosts актуален");
+            }
+
+            // 7. Sync publish/lists if publish dir exists
+            var publishLists = Path.Combine(rootDir, "publish", "lists");
+            if (Directory.Exists(publishLists))
+            {
+                foreach (var file in Directory.EnumerateFiles(dstLists, "*.txt"))
+                {
+                    var dest = Path.Combine(publishLists, Path.GetFileName(file));
+                    File.Copy(file, dest, overwrite: true);
+                }
+                ConsoleMenu.WriteOk("publish/lists/ синхронизирован");
+            }
+
             ConsoleMenu.WriteOk("Файлы zapret core успешно обновлены!");
             ConsoleMenu.WriteWarn("Перезапустите службу zapret для применения изменений");
 
