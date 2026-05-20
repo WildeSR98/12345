@@ -649,6 +649,10 @@ class Program
                     }
                 }
             }
+            else if (mgrRemote != null)
+            {
+                ConsoleMenu.WriteOk($"Manager актуален: v{mgrLocal}");
+            }
         }
         catch { }
 
