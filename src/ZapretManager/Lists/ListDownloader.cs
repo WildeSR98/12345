@@ -53,10 +53,10 @@ public static class ListDownloader
             try
             {
                 var content = await _http.GetStringAsync(url);
-                var newLines = content.Split('\n').Select(l => l.TrimEnd('\r'));
-                var merged = ListMerger.Merge(localPath, newLines);
-                ListMerger.WriteUtf8(localPath, merged);
-                onResult?.Invoke($"{entry.Local}: {merged.Length} строк", true);
+                var originLines = content.Split('\n').Select(l => l.TrimEnd('\r'));
+                var updated = ListMerger.ReplaceWithOrigin(localPath, originLines);
+                ListMerger.WriteUtf8(localPath, updated);
+                onResult?.Invoke($"{entry.Local}: {updated.Length} строк", true);
             }
             catch (Exception ex)
             {

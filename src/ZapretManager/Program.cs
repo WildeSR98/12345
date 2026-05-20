@@ -276,9 +276,9 @@ class Program
             using var http = new System.Net.Http.HttpClient();
             var content = await http.GetStringAsync(url);
             var newLines = content.Split('\n').Select(l => l.TrimEnd('\r'));
-            var merged   = ListMerger.Merge(listFile, newLines);
-            ListMerger.WriteUtf8(listFile, merged);
-            ConsoleMenu.StopSpinner(true, $"ipset-all.txt обновлён ({merged.Length} строк)");
+            var updated  = ListMerger.ReplaceWithOrigin(listFile, newLines);
+            ListMerger.WriteUtf8(listFile, updated);
+            ConsoleMenu.StopSpinner(true, $"ipset-all.txt обновлён ({updated.Length} строк)");
         }
         catch (Exception ex)
         {
@@ -799,7 +799,7 @@ class Program
             ConsoleMenu.WriteSeparator();
             ConsoleMenu.WriteInfo($"Найдено конфигов: {batFiles.Length}");
             ConsoleMenu.WriteSeparator();
-            Console.WriteLine("  [1]  Быстрый тест — протестировать ВСЕ конфиги и выбрать лучший");
+            Console.WriteLine("  [1]  Тест стратегий — автоматический выбор лучшего конфига");
             Console.WriteLine("  [2]  Ручной выбор конфига из списка");
             Console.WriteLine("  [3]  Отмена");
             Console.WriteLine();
@@ -807,16 +807,122 @@ class Program
             switch (modeChoice)
             {
                 case "1":
-                    var targets = StrategyTester.LoadTargets(RootDir, Cfg.Diagnostics.CheckTargets);
-                    var allResults = await StrategyTester.RunStandardTestsAsync(RootDir, batFiles, targets, winwsExe);
-                    var analytics = StrategyTester.ComputeAnalytics(allResults);
-                    StrategyTester.PrintAnalytics(analytics);
-                    StrategyTester.SaveStandardResults(RootDir, allResults, analytics);
-                    var bestName = StrategyTester.GetBestConfig(analytics);
-                    if (bestName != null)
+                    Console.WriteLine();
+                    Console.ForegroundColor = ConsoleColor.DarkCyan;
+                    Console.WriteLine("  ╔═══════════════════════════════════════════╗");
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.WriteLine("  ║  ТЕСТ СТРАТЕГИЙ                           ║");
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                    Console.WriteLine("  ║                                           ║");
+                    Console.WriteLine("  ║  [1] Стандартный — HTTP/TLS/ping тесты    ║");
+                    Console.WriteLine("  ║      (доступность сайтов, score)          ║");
+                    Console.WriteLine("  ║                                           ║");
+                    Console.WriteLine("  ║  [2] DPI тест — TCP 16-20 KB freeze       ║");
+                    Console.WriteLine("  ║      (curl payload, паттерн блокировки)   ║");
+                    Console.ForegroundColor = ConsoleColor.DarkCyan;
+                    Console.WriteLine("  ╚═══════════════════════════════════════════╝");
+                    Console.ResetColor();
+                    Console.WriteLine();
+                    var testMode = ConsoleMenu.Prompt("  Выберите режим (1/2)", "1");
+
+                    if (testMode == "1")
                     {
-                        var bestFile = batFiles.FirstOrDefault(f => f.Name == bestName);
-                        if (bestFile != null) { chosenBat = bestFile.FullName; ConsoleMenu.WriteOk($"Лучшая: {bestName}"); }
+                        // Стандартный тест
+                        var targets = StrategyTester.LoadTargets(RootDir, Cfg.Diagnostics.CheckTargets);
+                        var selectedConfigs = StrategyTester.SelectConfigs(batFiles);
+                        var allResults = await StrategyTester.RunStandardTestsAsync(RootDir, selectedConfigs, targets, winwsExe);
+                        var analytics = StrategyTester.ComputeAnalytics(allResults);
+                        StrategyTester.PrintAnalytics(analytics);
+                        StrategyTester.SaveStandardResults(RootDir, allResults, analytics);
+                        var bestName = StrategyTester.GetBestConfig(analytics);
+                        if (bestName != null)
+                        {
+                            var bestFile = batFiles.FirstOrDefault(f => f.Name == bestName);
+                            if (bestFile != null) { chosenBat = bestFile.FullName; ConsoleMenu.WriteOk($"Лучшая: {bestName}"); }
+                        }
+                    }
+                    else if (testMode == "2")
+                    {
+                        // DPI тест
+                        var selectedConfigs = StrategyTester.SelectConfigs(batFiles);
+                        
+                        // Backup ipset and switch to "any" for testing
+                        IpsetTestHelper.SwitchToAny(ListsDir);
+                        IpsetTestHelper.SetFlag(RootDir);
+                        var winwsSnapshot = WinWsSnapshot.Capture();
+
+                        // Load DPI suite
+                        ConsoleMenu.WriteStep("Загрузка DPI suite...");
+                        var dpiTargets = await DpiChecker.GetSuiteAsync();
+                        if (dpiTargets.Count == 0)
+                        {
+                            ConsoleMenu.WriteError("Не удалось загрузить DPI suite");
+                            IpsetTestHelper.Restore(ListsDir);
+                            IpsetTestHelper.RemoveFlag(RootDir);
+                            break;
+                        }
+                        ConsoleMenu.WriteOk($"Загружено {dpiTargets.Count} целей");
+
+                        var curlPath = File.Exists(Path.Combine(BinDir, "curl.exe")) 
+                            ? Path.Combine(BinDir, "curl.exe") : "curl.exe";
+
+                        var allDpiResults = new List<(string Config, List<DpiTargetResult> Results)>();
+                        ConsoleMenu.WriteWarn("DPI тесты займут несколько минут...");
+
+                        for (int i = 0; i < selectedConfigs.Length; i++)
+                        {
+                            var file = selectedConfigs[i];
+                            Console.ForegroundColor = ConsoleColor.DarkCyan;
+                            Console.WriteLine($"\n  [{i + 1}/{selectedConfigs.Length}] {file.Name}");
+                            Console.WriteLine("  " + new string('─', 56));
+                            Console.ResetColor();
+
+                            ProcessManager.KillAll();
+                            await Task.Delay(500);
+
+                            // Launch strategy via bat file
+                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe",
+                                $"/c \"{file.FullName}\"") { WorkingDirectory = RootDir, WindowStyle = System.Diagnostics.ProcessWindowStyle.Minimized, UseShellExecute = true });
+                            await Task.Delay(5000);
+
+                            var dpiResults = await DpiChecker.RunSuiteAsync(dpiTargets, curlPath);
+                            allDpiResults.Add((file.Name, dpiResults));
+
+                            ProcessManager.KillAll();
+                            await Task.Delay(500);
+                        }
+
+                        // Restore
+                        IpsetTestHelper.Restore(ListsDir);
+                        IpsetTestHelper.RemoveFlag(RootDir);
+                        WinWsSnapshot.Restore(winwsSnapshot);
+
+                        // Вывод результатов и выбор лучшего
+                        string? bestDpiConfig = null;
+                        int bestDpiScore = -1;
+                        foreach (var (config, results) in allDpiResults)
+                        {
+                            int okCount = results.Count(r => !r.WarnDetected);
+                            int blocked = results.Count(r => r.WarnDetected);
+                            Console.ForegroundColor = ConsoleColor.Cyan;
+                            Console.WriteLine($"\n  {config}: OK={okCount} BLOCKED={blocked} / {results.Count}");
+                            Console.ResetColor();
+                            foreach (var r in results)
+                            {
+                                var color = r.WarnDetected ? ConsoleColor.Red : ConsoleColor.Green;
+                                Console.ForegroundColor = color;
+                                var status = r.WarnDetected ? "LIKELY_BLOCKED" : "OK";
+                                Console.WriteLine($"    {r.TargetId} ({r.Provider}): {status}");
+                            }
+                            Console.ResetColor();
+                            if (okCount > bestDpiScore) { bestDpiScore = okCount; bestDpiConfig = config; }
+                        }
+
+                        if (bestDpiConfig != null)
+                        {
+                            var bestFile = batFiles.FirstOrDefault(f => f.Name == bestDpiConfig);
+                            if (bestFile != null) { chosenBat = bestFile.FullName; ConsoleMenu.WriteOk($"Лучшая (DPI): {bestDpiConfig}"); }
+                        }
                     }
                     break;
                 case "2":

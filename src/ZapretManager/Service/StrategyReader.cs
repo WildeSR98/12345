@@ -37,6 +37,15 @@ public static class StrategyReader
             bool continuation = line.EndsWith('^');
             if (continuation) line = line[..^1].TrimEnd();
 
+            // Skip empty lines and comments
+            if (line.TrimStart().StartsWith("::") || line.TrimStart().StartsWith("rem ") || 
+                line.TrimStart().StartsWith("@") || line.TrimStart().StartsWith("chcp") ||
+                line.TrimStart().StartsWith("cd /d") || line.TrimStart().StartsWith("call") ||
+                line.TrimStart().StartsWith("echo") || line.TrimStart().StartsWith("if not"))
+            {
+                if (!capture) continue;
+            }
+
             // Apply variable substitutions
             line = line
                 .Replace("%BIN%", binPath)
@@ -48,24 +57,34 @@ public static class StrategyReader
                 .Replace("%GameFilterTCP%", gameTcp)
                 .Replace("%GameFilterUDP%", gameUdp);
 
-            if (!capture && Regex.IsMatch(line, @"winws\.exe""", RegexOptions.IgnoreCase))
+            // Look for winws.exe in the line (handles both "path\winws.exe" and plain winws.exe)
+            if (!capture && line.Contains("winws.exe", StringComparison.OrdinalIgnoreCase))
             {
                 capture = true;
-                // Grab everything after winws.exe"
-                var m = Regex.Match(line, @"winws\.exe""(.*)$", RegexOptions.IgnoreCase);
-                if (m.Success) line = m.Groups[1].Value.Trim();
+                // Extract everything after winws.exe" (quoted path) or winws.exe (unquoted)
+                var m = Regex.Match(line, @"winws\.exe""?\s+(.*)$", RegexOptions.IgnoreCase);
+                if (m.Success)
+                    line = m.Groups[1].Value.Trim();
+                else
+                    continue; // winws.exe found but no args on this line
             }
 
             if (capture)
             {
-                if (parts.Length > 0 && !string.IsNullOrWhiteSpace(line))
+                var trimmed = line.Trim();
+                // Skip set/start/cd commands that might be captured
+                if (trimmed.StartsWith("set ", StringComparison.OrdinalIgnoreCase)) continue;
+
+                if (parts.Length > 0 && !string.IsNullOrWhiteSpace(trimmed))
                     parts.Append(' ');
-                parts.Append(line.Trim());
+                parts.Append(trimmed);
 
                 if (!continuation) break; // end of the winws invocation
             }
         }
 
-        return parts.ToString().Trim();
+        var result = parts.ToString().Trim();
+        Core.Logger.Info($"ParseArgs [{Path.GetFileName(batPath)}]: length={result.Length}");
+        return result;
     }
 }
