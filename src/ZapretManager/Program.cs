@@ -892,6 +892,9 @@ class Program
                             var dpiResults = await DpiChecker.RunSuiteAsync(dpiTargets, curlPath);
                             allDpiResults.Add((file.Name, dpiResults));
 
+                            // Детальный вывод результатов для этого конфига
+                            DpiChecker.PrintResults(dpiResults);
+
                             ProcessManager.KillAll();
                             await Task.Delay(500);
                         }
@@ -901,26 +904,9 @@ class Program
                         IpsetTestHelper.RemoveFlag(RootDir);
                         WinWsSnapshot.Restore(winwsSnapshot);
 
-                        // Вывод результатов и выбор лучшего
-                        string? bestDpiConfig = null;
-                        int bestDpiScore = -1;
-                        foreach (var (config, results) in allDpiResults)
-                        {
-                            int okCount = results.Count(r => !r.WarnDetected);
-                            int blocked = results.Count(r => r.WarnDetected);
-                            Console.ForegroundColor = ConsoleColor.Cyan;
-                            Console.WriteLine($"\n  {config}: OK={okCount} BLOCKED={blocked} / {results.Count}");
-                            Console.ResetColor();
-                            foreach (var r in results)
-                            {
-                                var color = r.WarnDetected ? ConsoleColor.Red : ConsoleColor.Green;
-                                Console.ForegroundColor = color;
-                                var status = r.WarnDetected ? "LIKELY_BLOCKED" : "OK";
-                                Console.WriteLine($"    {r.TargetId} ({r.Provider}): {status}");
-                            }
-                            Console.ResetColor();
-                            if (okCount > bestDpiScore) { bestDpiScore = okCount; bestDpiConfig = config; }
-                        }
+                        // Аналитика и выбор лучшего
+                        var bestDpiConfig = DpiChecker.PrintDpiAnalytics(allDpiResults);
+                        DpiChecker.SaveDpiResults(RootDir, allDpiResults, bestDpiConfig);
 
                         if (bestDpiConfig != null)
                         {
@@ -1114,6 +1100,9 @@ class Program
                 var dpiResults = await DpiChecker.RunSuiteAsync(dpiTargets, curlPath);
                 allDpiResults.Add((file.Name, dpiResults));
 
+                // Детальный вывод результатов для этого конфига
+                DpiChecker.PrintResults(dpiResults);
+
                 ProcessManager.KillAll();
                 await Task.Delay(500);
             }
@@ -1122,25 +1111,9 @@ class Program
             IpsetTestHelper.RemoveFlag(RootDir);
             WinWsSnapshot.Restore(winwsSnapshot);
 
-            // Вывод результатов
-            int bestScore = -1;
-            foreach (var (config, results) in allDpiResults)
-            {
-                int okCount = results.Count(r => !r.WarnDetected);
-                int blocked = results.Count(r => r.WarnDetected);
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine($"\n  {config}: OK={okCount} BLOCKED={blocked} / {results.Count}");
-                Console.ResetColor();
-                foreach (var r in results)
-                {
-                    var color = r.WarnDetected ? ConsoleColor.Red : ConsoleColor.Green;
-                    Console.ForegroundColor = color;
-                    var status = r.WarnDetected ? "LIKELY_BLOCKED" : "OK";
-                    Console.WriteLine($"    {r.TargetId} ({r.Provider}): {status}");
-                }
-                Console.ResetColor();
-                if (okCount > bestScore) { bestScore = okCount; bestConfig = config; }
-            }
+            // Аналитика и выбор лучшего
+            bestConfig = DpiChecker.PrintDpiAnalytics(allDpiResults);
+            DpiChecker.SaveDpiResults(RootDir, allDpiResults, bestConfig);
         }
         else
         {

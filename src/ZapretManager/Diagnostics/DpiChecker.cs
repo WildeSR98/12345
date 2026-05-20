@@ -178,21 +178,125 @@ public static class DpiChecker
                     "LIKELY_BLOCKED" => ConsoleColor.Yellow,
                     _              => ConsoleColor.Red
                 };
+                var upKB = Math.Round(l.UpBytes / 1024.0, 1);
+                var downKB = Math.Round(l.DownBytes / 1024.0, 1);
                 Console.WriteLine(
                     $"  [{l.Label}] code={l.Code} " +
-                    $"up={l.UpBytes}B down={l.DownBytes}B time={l.Time:F1}s status={l.Status}");
+                    $"buf_up={l.UpBytes} bytes ({upKB} KB) buf_down={l.DownBytes} bytes ({downKB} KB) " +
+                    $"time={l.Time:F1}s status={l.Status}");
                 if (l.Status == "LIKELY_BLOCKED")
-                    Console.WriteLine("    ⚠ Паттерн 16-20KB freeze — цензор режет стратегию");
+                    Console.WriteLine("    ⚠ Pattern matches 16-20KB freeze; censor likely cutting this strategy.");
                 Console.ResetColor();
             }
 
             if (r.WarnDetected) anyWarn = true;
-            else ConsoleMenu.WriteOk("Нет паттерна 16-20KB freeze для этого хоста");
+            else ConsoleMenu.WriteOk("No 16-20KB freeze pattern for this target.");
         }
 
         Console.WriteLine();
-        if (anyWarn) ConsoleMenu.WriteWarn("Обнаружена возможная блокировка DPI TCP 16-20 на некоторых хостах");
-        else ConsoleMenu.WriteOk("Паттерн 16-20KB freeze не обнаружен");
+        if (anyWarn) ConsoleMenu.WriteWarn("Detected possible DPI TCP 16-20 blocking on one or more targets.");
+        else ConsoleMenu.WriteOk("No 16-20KB freeze pattern detected across targets.");
+    }
+
+    /// <summary>Print analytics summary and return best config, like original test zapret.ps1.</summary>
+    public static string? PrintDpiAnalytics(List<(string Config, List<DpiTargetResult> Results)> allResults)
+    {
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("=== АНАЛИТИКА ===");
+        Console.ResetColor();
+
+        string? bestConfig = null;
+        int bestScore = -1;
+
+        foreach (var (config, results) in allResults)
+        {
+            int ok = 0, fail = 0, unsup = 0, blocked = 0;
+            foreach (var r in results)
+                foreach (var l in r.Lines)
+                {
+                    switch (l.Status)
+                    {
+                        case "OK": ok++; break;
+                        case "FAIL": fail++; break;
+                        case "UNSUPPORTED": unsup++; break;
+                        case "LIKELY_BLOCKED": blocked++; break;
+                    }
+                }
+
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"{config} : OK: {ok}, FAIL: {fail}, UNSUP: {unsup}, BLOCKED: {blocked}");
+            Console.ResetColor();
+
+            if (ok > bestScore) { bestScore = ok; bestConfig = config; }
+        }
+
+        Console.WriteLine();
+        if (bestConfig != null)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"Best config: {bestConfig}");
+            Console.ResetColor();
+        }
+
+        return bestConfig;
+    }
+
+    /// <summary>Save DPI test results to file.</summary>
+    public static void SaveDpiResults(string rootDir, List<(string Config, List<DpiTargetResult> Results)> allResults, string? bestConfig)
+    {
+        try
+        {
+            var resultsDir = Path.Combine(rootDir, "utils", "test results");
+            Directory.CreateDirectory(resultsDir);
+            var dateStr = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+            var resultFile = Path.Combine(resultsDir, $"dpi_results_{dateStr}.txt");
+
+            var sb = new System.Text.StringBuilder();
+            foreach (var (config, results) in allResults)
+            {
+                sb.AppendLine($"Config: {config} (Type: dpi)");
+                foreach (var r in results)
+                {
+                    if (!string.IsNullOrEmpty(r.Country))
+                        sb.AppendLine($"  Target: [{r.Country}] {r.TargetId} ({r.Provider})");
+                    else
+                        sb.AppendLine($"  Target: {r.TargetId} ({r.Provider})");
+
+                    foreach (var l in r.Lines)
+                    {
+                        var upKB = Math.Round(l.UpBytes / 1024.0, 1);
+                        var downKB = Math.Round(l.DownBytes / 1024.0, 1);
+                        sb.AppendLine($"    {l.Label}: code={l.Code}  up={upKB} KB  down={downKB} KB  time={l.Time:F1}s  status={l.Status}");
+                    }
+                }
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("=== ANALYTICS ===");
+            foreach (var (config, results) in allResults)
+            {
+                int ok = 0, fail = 0, unsup = 0, blocked = 0;
+                foreach (var r in results)
+                    foreach (var l in r.Lines)
+                        switch (l.Status)
+                        {
+                            case "OK": ok++; break;
+                            case "FAIL": fail++; break;
+                            case "UNSUPPORTED": unsup++; break;
+                            case "LIKELY_BLOCKED": blocked++; break;
+                        }
+                sb.AppendLine($"{config} : OK: {ok}, FAIL: {fail}, UNSUP: {unsup}, BLOCKED: {blocked}");
+            }
+            sb.AppendLine($"Best strategy: {bestConfig ?? "none"}");
+
+            File.WriteAllText(resultFile, sb.ToString());
+            ConsoleMenu.WriteOk($"Результаты сохранены: {resultFile}");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Ошибка сохранения DPI результатов: {ex.Message}");
+        }
     }
 }
 
