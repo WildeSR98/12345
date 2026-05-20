@@ -33,9 +33,9 @@ public static class WinServiceManager
     [DllImport("advapi32.dll", SetLastError = true)]
     private static extern bool CloseServiceHandle(IntPtr handle);
 
-    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern bool ChangeServiceDescription(IntPtr svc,
-        ref SERVICE_DESCRIPTIONW desc);
+    [DllImport("advapi32.dll", EntryPoint = "ChangeServiceConfig2W", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool ChangeServiceConfig2(IntPtr svc,
+        uint infoLevel, ref SERVICE_DESCRIPTIONW desc);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct SERVICE_STATUS
@@ -88,9 +88,9 @@ public static class WinServiceManager
 
             if (svc == IntPtr.Zero) return false;
 
-            // Set description
+            // Set description (SERVICE_CONFIG_DESCRIPTION = 1)
             var desc = new SERVICE_DESCRIPTIONW { Description = description };
-            ChangeServiceDescription(svc, ref desc);
+            ChangeServiceConfig2(svc, 1, ref desc);
 
             StartService(svc, 0, null);
             CloseServiceHandle(svc);
