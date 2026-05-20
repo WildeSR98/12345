@@ -163,39 +163,47 @@ public static class DpiChecker
     public static void PrintResults(List<DpiTargetResult> results)
     {
         bool anyWarn = false;
+        int maxIdLen = results.Count > 0 ? results.Max(r => $"[{r.Country}]{r.Provider}".Length) : 20;
+        if (maxIdLen < 15) maxIdLen = 15;
+
         foreach (var r in results)
         {
-            Console.ForegroundColor = ConsoleColor.DarkCyan;
-            Console.WriteLine($"\n=== [{r.Country}][{r.Provider}] {r.TargetId} ===");
-            Console.ResetColor();
+            var label = $"[{r.Country}]{r.Provider}";
+            Console.Write($"  {label.PadRight(maxIdLen)}  ");
 
             foreach (var l in r.Lines)
             {
                 Console.ForegroundColor = l.Status switch
                 {
-                    "OK"           => ConsoleColor.Green,
-                    "UNSUPPORTED"  => ConsoleColor.Yellow,
-                    "LIKELY_BLOCKED" => ConsoleColor.Yellow,
-                    _              => ConsoleColor.Red
+                    "OK"             => ConsoleColor.Green,
+                    "UNSUPPORTED"    => ConsoleColor.Yellow,
+                    "LIKELY_BLOCKED" => ConsoleColor.Red,
+                    _                => ConsoleColor.Red
                 };
-                var upKB = Math.Round(l.UpBytes / 1024.0, 1);
-                var downKB = Math.Round(l.DownBytes / 1024.0, 1);
-                Console.WriteLine(
-                    $"  [{l.Label}] code={l.Code} " +
-                    $"buf_up={l.UpBytes} bytes ({upKB} KB) buf_down={l.DownBytes} bytes ({downKB} KB) " +
-                    $"time={l.Time:F1}s status={l.Status}");
-                if (l.Status == "LIKELY_BLOCKED")
-                    Console.WriteLine("    ⚠ Pattern matches 16-20KB freeze; censor likely cutting this strategy.");
-                Console.ResetColor();
+                var shortStatus = l.Status switch
+                {
+                    "OK" => "OK",
+                    "UNSUPPORTED" => "UNSUP",
+                    "LIKELY_BLOCKED" => "BLOCK",
+                    "FAIL" => "FAIL",
+                    _ => "ERR"
+                };
+                Console.Write($" {l.Label}:{shortStatus,-5}");
             }
 
-            if (r.WarnDetected) anyWarn = true;
-            else ConsoleMenu.WriteOk("No 16-20KB freeze pattern for this target.");
+            if (r.WarnDetected)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.Write(" ⚠ 16-20KB freeze");
+                anyWarn = true;
+            }
+            Console.ResetColor();
+            Console.WriteLine();
         }
 
         Console.WriteLine();
-        if (anyWarn) ConsoleMenu.WriteWarn("Detected possible DPI TCP 16-20 blocking on one or more targets.");
-        else ConsoleMenu.WriteOk("No 16-20KB freeze pattern detected across targets.");
+        if (anyWarn) ConsoleMenu.WriteWarn("Обнаружен паттерн блокировки DPI TCP 16-20KB.");
+        else ConsoleMenu.WriteOk("Паттерн 16-20KB freeze не обнаружен.");
     }
 
     /// <summary>Print analytics summary and return best config, like original test zapret.ps1.</summary>
