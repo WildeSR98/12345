@@ -5,17 +5,30 @@ logs/
 # Backups
 backups/
 
-# Python cache
-__pycache__/
-*.pyc
+# Runtime test data
+ipset_switched.flag
+*.test-backup.txt
+*.txt.backup
+utils/test results/
+utils/update_cache/
 
 # Build artifacts
 build/
 dist/
+src/ZapretManager/bin/
+src/ZapretManager/obj/
+src/ZapretManager/publish/
+src/TgWsProxy/bin/
+src/TgWsProxy/obj/
+
+# PDB debug files
+*.pdb
 
 # IDE
 .vscode/
 .idea/
+*.suo
+*.user
 
 # OS files
 Thumbs.db
@@ -26,3 +39,22 @@ desktop.ini
 *.zip
 *.7z
 *.rar
+
+# Old scripts (replaced by C# manager)
+service.bat
+clean_lists.ps1
+install_autostart.ps1
+git-sync.bat
+utils/autosetup.ps1
+utils/test zapret.ps1
+utils/modules/
+
+# Telegram proxy
+tg/
+tg_ws_proxy_autostart.*
+src/TgWsProxy/
+
+# User files in root (duplicates of lists/)
+/ipset-exclude-user.txt
+/list-exclude-user.txt
+/list-general-user.txt
