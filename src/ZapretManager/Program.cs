@@ -1038,33 +1038,141 @@ class Program
             ConsoleMenu.PauseAny(); return;
         }
 
-        var targets = StrategyTester.LoadTargets(RootDir, Cfg.Diagnostics.CheckTargets);
-        var allResults = await StrategyTester.RunStandardTestsAsync(RootDir, files, targets, winwsExe);
-        var analytics = StrategyTester.ComputeAnalytics(allResults);
-        StrategyTester.PrintAnalytics(analytics);
-        StrategyTester.SaveStandardResults(RootDir, allResults, analytics);
+        // Выбор режима тестирования
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.DarkCyan;
+        Console.WriteLine("  ╔═══════════════════════════════════════════╗");
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("  ║  ТЕСТ СТРАТЕГИЙ                           ║");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("  ║                                           ║");
+        Console.WriteLine("  ║  [1] Стандартный — HTTP/TLS/ping тесты    ║");
+        Console.WriteLine("  ║      (доступность сайтов, score)          ║");
+        Console.WriteLine("  ║                                           ║");
+        Console.WriteLine("  ║  [2] DPI тест — TCP 16-20 KB freeze       ║");
+        Console.WriteLine("  ║      (curl payload, паттерн блокировки)   ║");
+        Console.ForegroundColor = ConsoleColor.DarkCyan;
+        Console.WriteLine("  ╚═══════════════════════════════════════════╝");
+        Console.ResetColor();
+        Console.WriteLine();
+        var testMode = ConsoleMenu.Prompt("  Выберите режим (1/2)", "1");
 
-        var bestConfig = StrategyTester.GetBestConfig(analytics);
+        string? bestConfig = null;
+
+        if (testMode == "1")
+        {
+            // Стандартный тест
+            var targets = StrategyTester.LoadTargets(RootDir, Cfg.Diagnostics.CheckTargets);
+            var selectedConfigs = StrategyTester.SelectConfigs(files);
+            var allResults = await StrategyTester.RunStandardTestsAsync(RootDir, selectedConfigs, targets, winwsExe);
+            var analytics = StrategyTester.ComputeAnalytics(allResults);
+            StrategyTester.PrintAnalytics(analytics);
+            StrategyTester.SaveStandardResults(RootDir, allResults, analytics);
+            bestConfig = StrategyTester.GetBestConfig(analytics);
+        }
+        else if (testMode == "2")
+        {
+            // DPI тест
+            var selectedConfigs = StrategyTester.SelectConfigs(files);
+
+            IpsetTestHelper.SwitchToAny(ListsDir);
+            IpsetTestHelper.SetFlag(RootDir);
+            var winwsSnapshot = WinWsSnapshot.Capture();
+
+            ConsoleMenu.WriteStep("Загрузка DPI suite...");
+            var dpiTargets = await DpiChecker.GetSuiteAsync();
+            if (dpiTargets.Count == 0)
+            {
+                ConsoleMenu.WriteError("Не удалось загрузить DPI suite");
+                IpsetTestHelper.Restore(ListsDir);
+                IpsetTestHelper.RemoveFlag(RootDir);
+                ConsoleMenu.PauseAny(); return;
+            }
+            ConsoleMenu.WriteOk($"Загружено {dpiTargets.Count} целей");
+
+            var curlPath = File.Exists(Path.Combine(BinDir, "curl.exe"))
+                ? Path.Combine(BinDir, "curl.exe") : "curl.exe";
+
+            var allDpiResults = new List<(string Config, List<DpiTargetResult> Results)>();
+            ConsoleMenu.WriteWarn("DPI тесты займут несколько минут...");
+
+            for (int i = 0; i < selectedConfigs.Length; i++)
+            {
+                var file = selectedConfigs[i];
+                Console.ForegroundColor = ConsoleColor.DarkCyan;
+                Console.WriteLine($"\n  [{i + 1}/{selectedConfigs.Length}] {file.Name}");
+                Console.WriteLine("  " + new string('─', 56));
+                Console.ResetColor();
+
+                ProcessManager.KillAll();
+                await Task.Delay(500);
+
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe",
+                    $"/c \"{file.FullName}\"") { WorkingDirectory = RootDir, WindowStyle = System.Diagnostics.ProcessWindowStyle.Minimized, UseShellExecute = true });
+                await Task.Delay(5000);
+
+                var dpiResults = await DpiChecker.RunSuiteAsync(dpiTargets, curlPath);
+                allDpiResults.Add((file.Name, dpiResults));
+
+                ProcessManager.KillAll();
+                await Task.Delay(500);
+            }
+
+            IpsetTestHelper.Restore(ListsDir);
+            IpsetTestHelper.RemoveFlag(RootDir);
+            WinWsSnapshot.Restore(winwsSnapshot);
+
+            // Вывод результатов
+            int bestScore = -1;
+            foreach (var (config, results) in allDpiResults)
+            {
+                int okCount = results.Count(r => !r.WarnDetected);
+                int blocked = results.Count(r => r.WarnDetected);
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"\n  {config}: OK={okCount} BLOCKED={blocked} / {results.Count}");
+                Console.ResetColor();
+                foreach (var r in results)
+                {
+                    var color = r.WarnDetected ? ConsoleColor.Red : ConsoleColor.Green;
+                    Console.ForegroundColor = color;
+                    var status = r.WarnDetected ? "LIKELY_BLOCKED" : "OK";
+                    Console.WriteLine($"    {r.TargetId} ({r.Provider}): {status}");
+                }
+                Console.ResetColor();
+                if (okCount > bestScore) { bestScore = okCount; bestConfig = config; }
+            }
+        }
+        else
+        {
+            ConsoleMenu.WriteInfo("Отменено");
+            ConsoleMenu.PauseAny(); return;
+        }
+
+        // Установка лучшей стратегии
         if (bestConfig != null)
         {
             var bestFile = files.FirstOrDefault(f => f.Name == bestConfig);
             if (bestFile != null)
             {
-                ConsoleMenu.WriteStep($"Установка лучшей стратегии: {bestConfig}");
-                var gf = GameFilter.Get(UtilsDir);
-                var wa = StrategyReader.ParseArgs(bestFile.FullName, BinDir, ListsDir, gf.Tcp, gf.Udp);
-                WinServiceManager.Install("zapret", "zapret", "Zapret DPI bypass", $"\"{winwsExe}\" {wa}");
-                ConsoleMenu.WriteOk("Служба zapret установлена!");
-                await Task.Delay(5000);
-                var post = await AccessChecker.CheckAllAsync(Cfg.Diagnostics.CheckTargets);
-                foreach (var r in post)
+                ConsoleMenu.WriteOk($"Лучшая стратегия: {bestConfig}");
+                if (ConsoleMenu.Confirm("Установить как службу zapret?"))
                 {
-                    if (r.Reachable) ConsoleMenu.WriteOk($"{r.Name}: {r.Detail}");
-                    else             ConsoleMenu.WriteWarn($"{r.Name}: недоступен");
+                    ConsoleMenu.WriteStep($"Установка службы: {bestConfig}");
+                    var gf = GameFilter.Get(UtilsDir);
+                    var wa = StrategyReader.ParseArgs(bestFile.FullName, BinDir, ListsDir, gf.Tcp, gf.Udp);
+                    WinServiceManager.Install("zapret", "zapret", "Zapret DPI bypass", $"\"{winwsExe}\" {wa}");
+                    ConsoleMenu.WriteOk("Служба zapret установлена!");
+                    await Task.Delay(5000);
+                    var post = await AccessChecker.CheckAllAsync(Cfg.Diagnostics.CheckTargets);
+                    foreach (var r in post)
+                    {
+                        if (r.Reachable) ConsoleMenu.WriteOk($"{r.Name}: {r.Detail}");
+                        else             ConsoleMenu.WriteWarn($"{r.Name}: недоступен");
+                    }
                 }
             }
         }
-        else ConsoleMenu.WriteInfo("Стратегия для установки не выбрана");
+        else ConsoleMenu.WriteInfo("Лучшая стратегия не определена");
         ConsoleMenu.PauseAny();
     }
 
