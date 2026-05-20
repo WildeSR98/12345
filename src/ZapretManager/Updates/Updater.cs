@@ -290,8 +290,8 @@ public static class GitHubUpdater
             }
             ConsoleMenu.WriteOk($"strategies/: {stratCount} стратегий обновлено");
 
-            // 3. Update lists/ (replace with origin, keep user additions)
-            ConsoleMenu.WriteStep("Обновление lists/ (замена из оригинала + сохранение пользовательских)...");
+            // 3. Update lists/ (merge, skip user files)
+            ConsoleMenu.WriteStep("Обновление lists/ (merge с существующими)...");
             var srcLists = Path.Combine(extractedDir, "lists");
             var dstLists = Path.Combine(rootDir, "lists");
             if (Directory.Exists(srcLists))
@@ -305,13 +305,13 @@ public static class GitHubUpdater
                     if (fileName.Contains("-user", StringComparison.OrdinalIgnoreCase)) continue;
 
                     var destPath = Path.Combine(dstLists, fileName);
-                    var originLines = (await File.ReadAllTextAsync(file))
+                    var newLines = (await File.ReadAllTextAsync(file))
                         .Split('\n').Select(l => l.TrimEnd('\r'));
-                    var listUpdated = ListMerger.ReplaceWithOrigin(destPath, originLines);
-                    ListMerger.WriteUtf8(destPath, listUpdated);
+                    var merged = ListMerger.Merge(destPath, newLines);
+                    ListMerger.WriteUtf8(destPath, merged);
                     listCount++;
                 }
-                ConsoleMenu.WriteOk($"lists/: {listCount} списков обновлено");
+                ConsoleMenu.WriteOk($"lists/: {listCount} списков обновлено (merge)");
             }
 
             // 4. Update version.txt
@@ -329,11 +329,11 @@ public static class GitHubUpdater
             if (File.Exists(srcIpset))
             {
                 var ipsetDest = Path.Combine(dstLists, "ipset-all.txt");
-                var originIpset = (await File.ReadAllTextAsync(srcIpset))
+                var newLines = (await File.ReadAllTextAsync(srcIpset))
                     .Split('\n').Select(l => l.TrimEnd('\r'));
-                var updatedIpset = ListMerger.ReplaceWithOrigin(ipsetDest, originIpset);
-                ListMerger.WriteUtf8(ipsetDest, updatedIpset);
-                ConsoleMenu.WriteOk($"ipset-all.txt обновлён ({updatedIpset.Length} строк)");
+                var merged = ListMerger.Merge(ipsetDest, newLines);
+                ListMerger.WriteUtf8(ipsetDest, merged);
+                ConsoleMenu.WriteOk($"ipset-all.txt обновлён ({merged.Length} строк)");
             }
 
             // 6. Update hosts from .service/hosts

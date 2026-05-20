@@ -276,9 +276,9 @@ class Program
             using var http = new System.Net.Http.HttpClient();
             var content = await http.GetStringAsync(url);
             var newLines = content.Split('\n').Select(l => l.TrimEnd('\r'));
-            var updated  = ListMerger.ReplaceWithOrigin(listFile, newLines);
-            ListMerger.WriteUtf8(listFile, updated);
-            ConsoleMenu.StopSpinner(true, $"ipset-all.txt обновлён ({updated.Length} строк)");
+            var merged   = ListMerger.Merge(listFile, newLines);
+            ListMerger.WriteUtf8(listFile, merged);
+            ConsoleMenu.StopSpinner(true, $"ipset-all.txt обновлён ({merged.Length} строк)");
         }
         catch (Exception ex)
         {
