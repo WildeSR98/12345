@@ -195,3 +195,174 @@ public static class DpiChecker
         else ConsoleMenu.WriteOk("Паттерн 16-20KB freeze не обнаружен");
     }
 }
+
+// ── IPSet Backup/Restore for DPI tests ───────────────────────────────────────
+
+public static class IpsetTestHelper
+{
+    /// <summary>Get current ipset status (loaded/none/any).</summary>
+    public static string GetStatus(string listsDir)
+    {
+        var f = Path.Combine(listsDir, "ipset-all.txt");
+        if (!File.Exists(f)) return "none";
+        var lines = File.ReadAllLines(f).Where(l => !string.IsNullOrWhiteSpace(l)).ToArray();
+        if (lines.Length == 0) return "any";
+        if (lines.Any(l => l.Trim() == "203.0.113.113/32")) return "none";
+        return "loaded";
+    }
+
+    /// <summary>Switch ipset to "any" mode, backing up current file.</summary>
+    public static void SwitchToAny(string listsDir)
+    {
+        var listFile = Path.Combine(listsDir, "ipset-all.txt");
+        var backupFile = Path.Combine(listsDir, "ipset-all.test-backup.txt");
+
+        if (File.Exists(listFile))
+            File.Copy(listFile, backupFile, overwrite: true);
+        else
+            File.WriteAllText(backupFile, "");
+
+        File.WriteAllText(listFile, "\r\n");
+        Logger.Info("IPSet переключён в режим 'any' для тестов");
+    }
+
+    /// <summary>Restore ipset from test backup.</summary>
+    public static void Restore(string listsDir)
+    {
+        var listFile = Path.Combine(listsDir, "ipset-all.txt");
+        var backupFile = Path.Combine(listsDir, "ipset-all.test-backup.txt");
+
+        if (File.Exists(backupFile))
+        {
+            File.Move(backupFile, listFile, overwrite: true);
+            Logger.Info("IPSet восстановлен из test-backup");
+        }
+    }
+
+    /// <summary>Create flag file to detect interrupted tests.</summary>
+    public static void SetFlag(string rootDir)
+        => File.WriteAllText(Path.Combine(rootDir, "ipset_switched.flag"), "");
+
+    public static void RemoveFlag(string rootDir)
+    {
+        var f = Path.Combine(rootDir, "ipset_switched.flag");
+        if (File.Exists(f)) File.Delete(f);
+    }
+
+    /// <summary>Check and restore if previous test was interrupted.</summary>
+    public static void CheckAndRestoreFlag(string rootDir, string listsDir)
+    {
+        var flagFile = Path.Combine(rootDir, "ipset_switched.flag");
+        if (File.Exists(flagFile))
+        {
+            ConsoleMenu.WriteWarn("Обнаружен незавершённый тест. Восстановление ipset...");
+            Restore(listsDir);
+            File.Delete(flagFile);
+        }
+    }
+}
+
+// ── WinWS Snapshot/Restore ───────────────────────────────────────────────────
+
+public static class WinWsSnapshot
+{
+    public record WinWsInstance(int ProcessId, string CommandLine, string ExePath);
+
+    /// <summary>Capture running winws.exe instances.</summary>
+    public static List<WinWsInstance> Capture()
+    {
+        var instances = new List<WinWsInstance>();
+        try
+        {
+            var procs = Process.GetProcessesByName("winws");
+            foreach (var proc in procs)
+            {
+                try
+                {
+                    // Get command line via WMI
+                    var cmdLine = GetCommandLine(proc.Id);
+                    var exePath = proc.MainModule?.FileName ?? "";
+                    instances.Add(new WinWsInstance(proc.Id, cmdLine, exePath));
+                }
+                catch { }
+            }
+        }
+        catch { }
+
+        if (instances.Count > 0)
+            Logger.Info($"Сохранён snapshot {instances.Count} запущенных winws.exe");
+
+        return instances;
+    }
+
+    /// <summary>Restore previously captured winws.exe instances.</summary>
+    public static void Restore(List<WinWsInstance> snapshot)
+    {
+        if (snapshot.Count == 0) return;
+
+        Logger.Info("Восстановление ранее запущенных winws.exe...");
+        foreach (var inst in snapshot)
+        {
+            if (string.IsNullOrEmpty(inst.ExePath)) continue;
+
+            // Check if already running with same command line
+            try
+            {
+                var current = Process.GetProcessesByName("winws");
+                if (current.Any(p => GetCommandLine(p.Id) == inst.CommandLine))
+                    continue;
+            }
+            catch { }
+
+            // Restore
+            try
+            {
+                var args = "";
+                if (!string.IsNullOrEmpty(inst.CommandLine))
+                {
+                    var quotedExe = $"\"{inst.ExePath}\"";
+                    if (inst.CommandLine.StartsWith(quotedExe))
+                        args = inst.CommandLine[quotedExe.Length..].Trim();
+                    else if (inst.CommandLine.StartsWith(inst.ExePath))
+                        args = inst.CommandLine[inst.ExePath.Length..].Trim();
+                }
+
+                Process.Start(new ProcessStartInfo(inst.ExePath, args)
+                {
+                    WorkingDirectory = Path.GetDirectoryName(inst.ExePath) ?? "",
+                    WindowStyle = ProcessWindowStyle.Minimized,
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"Не удалось восстановить winws.exe: {ex.Message}");
+            }
+        }
+    }
+
+    private static string GetCommandLine(int processId)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo("wmic",
+                $"process where ProcessId={processId} get CommandLine /format:list")
+            {
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var proc = Process.Start(psi)!;
+            var output = proc.StandardOutput.ReadToEnd();
+            proc.WaitForExit(2000);
+
+            foreach (var line in output.Split('\n'))
+            {
+                if (line.StartsWith("CommandLine=", StringComparison.OrdinalIgnoreCase))
+                    return line["CommandLine=".Length..].Trim();
+            }
+        }
+        catch { }
+        return "";
+    }
+}

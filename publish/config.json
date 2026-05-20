@@ -12,12 +12,14 @@
       "version_url": "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/main/.service/version.txt",
       "download_page": "https://github.com/Flowseal/zapret-discord-youtube/releases/latest",
       "ipset_service": "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/refs/heads/main/.service/ipset-service.txt",
-      "hosts_service": "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/refs/heads/main/.service/hosts"
+      "hosts_service": "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/refs/heads/main/.service/hosts",
+      "archive_url": "https://github.com/Flowseal/zapret-discord-youtube/archive/refs/heads/main.zip"
     },
     "scripts_12345": {
       "owner": "WildeSR98",
       "repo": "12345",
       "commit_api": "https://api.github.com/repos/WildeSR98/12345/commits?per_page=1",
+      "release_api": "https://api.github.com/repos/WildeSR98/12345/releases/latest",
       "archive_url": "https://github.com/WildeSR98/12345/archive/refs/heads/main.zip"
     }
   },

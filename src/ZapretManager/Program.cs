@@ -301,19 +301,65 @@ class Program
     {
         Console.Clear();
         ConsoleMenu.WriteHeader("ПРОВЕРКА ОБНОВЛЕНИЙ");
+
+        // ── Этап 1: Проверка обновлений zapret-manager ──
+        ConsoleMenu.WriteStep("Этап 1: Проверка обновлений zapret-manager...");
+        ConsoleMenu.StartSpinner("Запрос к GitHub...");
+        var (mgrRemote, mgrLocal, mgrDownloadUrl) = await GitHubUpdater.CheckManagerUpdateAsync(Cfg, RootDir);
+        ConsoleMenu.StopSpinner();
+
+        if (mgrRemote == null)
+        {
+            ConsoleMenu.WriteInfo("Не удалось проверить обновления manager (нет релизов)");
+        }
+        else if (mgrRemote == mgrLocal)
+        {
+            ConsoleMenu.WriteOk($"Zapret Manager актуален: v{mgrLocal}");
+        }
+        else
+        {
+            ConsoleMenu.WriteWarn($"Доступна новая версия manager: v{mgrRemote} (у вас: v{mgrLocal ?? "?"})");
+            if (mgrDownloadUrl != null && ConsoleMenu.Confirm("Обновить zapret-manager?"))
+            {
+                var updated = await GitHubUpdater.UpdateManagerAsync(mgrDownloadUrl, RootDir, mgrRemote);
+                if (updated)
+                {
+                    ConsoleMenu.WriteOk("Обновление запущено. Приложение будет перезапущено.");
+                    Environment.Exit(0);
+                    return;
+                }
+            }
+        }
+
+        // ── Этап 2: Проверка обновлений zapret core ──
+        ConsoleMenu.WriteStep("Этап 2: Проверка обновлений zapret core (Flowseal)...");
         ConsoleMenu.StartSpinner("Запрос к GitHub...");
         var (remote, local) = await GitHubUpdater.CheckZapretCoreAsync(Cfg, RootDir);
         ConsoleMenu.StopSpinner();
 
-        if (remote == null) { ConsoleMenu.WriteError("Не удалось получить версию с GitHub"); }
-        else if (remote == local) { ConsoleMenu.WriteOk($"Установлена последняя версия: {local}"); }
+        if (remote == null)
+        {
+            ConsoleMenu.WriteError("Не удалось получить версию zapret core с GitHub");
+        }
+        else if (remote == local)
+        {
+            ConsoleMenu.WriteOk($"Zapret core актуален: {local}");
+        }
         else
         {
-            ConsoleMenu.WriteWarn($"Доступна новая версия: {remote} (установлена: {local ?? "неизвестна"})");
-            var dlPage = Cfg.Repositories.ZapretCore.DownloadPage ?? "";
-            if (!string.IsNullOrWhiteSpace(dlPage) && ConsoleMenu.Confirm("Открыть страницу загрузки?"))
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dlPage) { UseShellExecute = true });
+            ConsoleMenu.WriteWarn($"Доступна новая версия zapret core: {remote} (у вас: {local ?? "неизвестна"})");
+            if (ConsoleMenu.Confirm("Обновить файлы zapret core (bin, strategies, lists)?"))
+            {
+                await GitHubUpdater.UpdateZapretCoreFilesAsync(Cfg, RootDir);
+            }
+            else
+            {
+                var dlPage = Cfg.Repositories.ZapretCore.DownloadPage ?? "";
+                if (!string.IsNullOrWhiteSpace(dlPage) && ConsoleMenu.Confirm("Открыть страницу загрузки вручную?"))
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dlPage) { UseShellExecute = true });
+            }
         }
+
         ConsoleMenu.PauseAny();
     }
 
@@ -342,50 +388,158 @@ class Program
     {
         Console.Clear();
         ConsoleMenu.WriteHeader("ТЕСТЫ СТРАТЕГИЙ");
-        Console.WriteLine("   [1] Стандартные тесты (HTTP/ping)");
-        Console.WriteLine("   [2] DPI тест (TCP 16-20 KB freeze)");
-        var mode = ConsoleMenu.Prompt("Выберите тип теста", "1");
+
+        // Check for interrupted test (ipset flag)
+        IpsetTestHelper.CheckAndRestoreFlag(RootDir, ListsDir);
+
+        // Select test type
+        Console.WriteLine("   [1] Стандартные тесты (HTTP/TLS1.2/TLS1.3 + ping)");
+        Console.WriteLine("   [2] DPI тесты (TCP 16-20 KB freeze)");
+        var testType = ConsoleMenu.Prompt("Выберите тип теста", "1");
 
         var winws = Path.Combine(BinDir, "winws.exe");
-
-        if (mode == "2")
+        var files = StrategyReader.GetStrategyFiles(RootDir);
+        if (files.Length == 0)
         {
-            ConsoleMenu.WriteStep("Загрузка DPI suite...");
-            var targets = await DpiChecker.GetSuiteAsync();
-            if (targets.Count == 0) { ConsoleMenu.WriteError("Suite недоступен"); ConsoleMenu.PauseAny(); return; }
-
-            var curlPath = Path.Combine(BinDir, "curl.exe");
-            if (!File.Exists(curlPath)) curlPath = "curl.exe";
-
-            var files = StrategyReader.GetStrategyFiles(RootDir);
-            Console.WriteLine($"\n   Выберите конфиги (через запятую, 0=все):");
-            for (int i = 0; i < files.Length; i++) Console.WriteLine($"   {i+1}. {files[i].Name}");
-            var sel = ConsoleMenu.Prompt("Номера", "0");
-            var selected = sel == "0" ? files : ParseSelection(sel, files);
-
-            ConsoleMenu.WriteStep("Запуск DPI тестов...");
-            var results = await DpiChecker.RunSuiteAsync(targets, curlPath);
-            DpiChecker.PrintResults(results);
+            ConsoleMenu.WriteError("Стратегии general*.bat не найдены в папке strategies/");
+            ConsoleMenu.PauseAny(); return;
         }
-        else
+
+        // Select configs
+        var selectedConfigs = StrategyTester.SelectConfigs(files);
+
+        // Save winws snapshot
+        var winwsSnapshot = WinWsSnapshot.Capture();
+
+        // Save original ipset status for DPI tests
+        var originalIpsetStatus = IpsetTestHelper.GetStatus(ListsDir);
+
+        try
         {
-            var scores = await StrategyTester.RunAllAsync(RootDir, Cfg.Diagnostics.CheckTargets, winws);
-            StrategyTester.PrintSummary(scores);
-            var best = StrategyTester.GetBest(scores);
-            if (best != null)
+            if (testType == "2")
             {
-                ConsoleMenu.WriteOk($"Лучшая стратегия: {best.Name} (✓{best.Ok} ✗{best.Fail})");
-                if (ConsoleMenu.Confirm("Установить лучшую стратегию как службу?"))
+                // ── DPI тесты ──
+                ConsoleMenu.WriteStep("Загрузка DPI suite...");
+                var dpiTargets = await DpiChecker.GetSuiteAsync();
+                if (dpiTargets.Count == 0)
                 {
-                    var gf    = GameFilter.Get(UtilsDir);
-                    var bArgs = StrategyReader.ParseArgs(best.FullPath, BinDir, ListsDir, gf.Tcp, gf.Udp);
-                    var wp    = Path.Combine(BinDir, "winws.exe");
-                    WinServiceManager.Install("zapret", "zapret", "Zapret DPI bypass",
-                        $"\"{wp}\" {bArgs}");
-                    ConsoleMenu.WriteOk("Служба установлена");
+                    ConsoleMenu.WriteError("Suite недоступен");
+                    ConsoleMenu.PauseAny(); return;
+                }
+
+                var curlPath = Path.Combine(BinDir, "curl.exe");
+                if (!File.Exists(curlPath)) curlPath = "curl.exe";
+
+                // Switch ipset to 'any' for accurate DPI tests
+                if (originalIpsetStatus != "any")
+                {
+                    ConsoleMenu.WriteWarn($"IPSet в режиме '{originalIpsetStatus}'. Переключение в 'any' для точных DPI тестов...");
+                    IpsetTestHelper.SwitchToAny(ListsDir);
+                    IpsetTestHelper.SetFlag(RootDir);
+                }
+
+                var allDpiResults = new List<(string Config, List<DpiTargetResult> Results)>();
+
+                ConsoleMenu.WriteWarn("Тесты займут несколько минут. Пожалуйста, подождите...");
+
+                for (int i = 0; i < selectedConfigs.Length; i++)
+                {
+                    var file = selectedConfigs[i];
+                    Console.ForegroundColor = ConsoleColor.DarkCyan;
+                    Console.WriteLine($"\n  [{i + 1}/{selectedConfigs.Length}] {file.Name}");
+                    Console.WriteLine("  " + new string('─', 56));
+                    Console.ResetColor();
+
+                    Service.ProcessManager.KillAll();
+                    await Task.Delay(500);
+
+                    // Start config via cmd.exe
+                    var proc = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe",
+                        $"/c \"{file.FullName}\"") { WorkingDirectory = RootDir, WindowStyle = System.Diagnostics.ProcessWindowStyle.Minimized, UseShellExecute = true });
+                    await Task.Delay(5000);
+
+                    ConsoleMenu.WriteInfo("Выполнение DPI тестов...");
+                    var dpiResults = await DpiChecker.RunSuiteAsync(dpiTargets, curlPath);
+                    DpiChecker.PrintResults(dpiResults);
+                    allDpiResults.Add((file.Name, dpiResults));
+
+                    Service.ProcessManager.KillAll();
+                    if (proc != null && !proc.HasExited) try { proc.Kill(); } catch { }
+                    await Task.Delay(500);
+                }
+
+                // DPI Analytics
+                ConsoleMenu.WriteHeader("DPI АНАЛИТИКА");
+                string? bestDpi = null;
+                int maxOk = 0;
+                foreach (var (config, results) in allDpiResults)
+                {
+                    int ok = results.SelectMany(r => r.Lines).Count(l => l.Status == "OK");
+                    int fail = results.SelectMany(r => r.Lines).Count(l => l.Status == "FAIL");
+                    int blocked = results.SelectMany(r => r.Lines).Count(l => l.Status == "LIKELY_BLOCKED");
+                    int unsup = results.SelectMany(r => r.Lines).Count(l => l.Status == "UNSUPPORTED");
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine($"   {config} : OK: {ok}, FAIL: {fail}, UNSUP: {unsup}, BLOCKED: {blocked}");
+                    Console.ResetColor();
+                    if (ok > maxOk) { maxOk = ok; bestDpi = config; }
+                }
+                if (bestDpi != null) ConsoleMenu.WriteOk($"Лучший конфиг: {bestDpi}");
+
+                // Save DPI results
+                StrategyTester.SaveDpiResults(RootDir, allDpiResults);
+            }
+            else
+            {
+                // ── Стандартные тесты ──
+                var targets = StrategyTester.LoadTargets(RootDir, Cfg.Diagnostics.CheckTargets);
+                if (targets.Count == 0)
+                {
+                    ConsoleMenu.WriteError("Нет целей для тестирования");
+                    ConsoleMenu.PauseAny(); return;
+                }
+
+                var allResults = await StrategyTester.RunStandardTestsAsync(
+                    RootDir, selectedConfigs, targets, winws);
+
+                // Analytics
+                var analytics = StrategyTester.ComputeAnalytics(allResults);
+                StrategyTester.PrintAnalytics(analytics);
+
+                // Save results
+                StrategyTester.SaveStandardResults(RootDir, allResults, analytics);
+
+                // Offer to install best
+                var bestConfig = StrategyTester.GetBestConfig(analytics);
+                if (bestConfig != null)
+                {
+                    var bestFile = selectedConfigs.FirstOrDefault(f => f.Name == bestConfig);
+                    if (bestFile != null && ConsoleMenu.Confirm("Установить лучшую стратегию как службу?"))
+                    {
+                        var gf = GameFilter.Get(UtilsDir);
+                        var bArgs = StrategyReader.ParseArgs(bestFile.FullName, BinDir, ListsDir, gf.Tcp, gf.Udp);
+                        var wp = Path.Combine(BinDir, "winws.exe");
+                        WinServiceManager.Install("zapret", "zapret", "Zapret DPI bypass",
+                            $"\"{wp}\" {bArgs}");
+                        ConsoleMenu.WriteOk("Служба установлена");
+                    }
                 }
             }
         }
+        finally
+        {
+            // Restore ipset if it was switched
+            if (originalIpsetStatus != "any")
+            {
+                ConsoleMenu.WriteInfo("Восстановление ipset...");
+                IpsetTestHelper.Restore(ListsDir);
+                IpsetTestHelper.RemoveFlag(RootDir);
+            }
+
+            // Restore winws snapshot
+            Service.ProcessManager.KillAll();
+            WinWsSnapshot.Restore(winwsSnapshot);
+        }
+
         ConsoleMenu.PauseAny();
     }
 
@@ -449,8 +603,9 @@ class Program
         ConsoleMenu.WriteInfo($"Рабочая папка: {RootDir}");
         ConsoleMenu.WriteInfo($".NET: {Environment.Version}");
 
-        // Фоновая проверка обновлений
-        var updateTask = GitHubUpdater.CheckZapretCoreAsync(Cfg, RootDir);
+        // ── Фоновая проверка обновлений (оба этапа) ──
+        var managerUpdateTask = GitHubUpdater.CheckManagerUpdateAsync(Cfg, RootDir);
+        var coreUpdateTask = GitHubUpdater.CheckZapretCoreAsync(Cfg, RootDir);
 
         // Главное меню
         string mainOpt = "1";
@@ -474,16 +629,44 @@ class Program
             mainOpt = ConsoleMenu.Prompt("  Выберите (1/2/3/4/5/s, по умолчанию 1)", "1") ?? "1";
         }
 
-        // Результат фоновой проверки обновлений
+        // ── Этап 1: Проверка обновлений zapret-manager ──
         try
         {
-            var (remote, local) = await updateTask;
+            var (mgrRemote, mgrLocal, mgrDownloadUrl) = await managerUpdateTask;
+            if (mgrRemote != null && mgrRemote != mgrLocal)
+            {
+                ConsoleMenu.WriteWarn($"Доступна новая версия zapret-manager: v{mgrRemote} (у вас: v{mgrLocal ?? "?"})");
+                if (!silent && mgrDownloadUrl != null && ConsoleMenu.Confirm("Обновить zapret-manager?"))
+                {
+                    var updated = await GitHubUpdater.UpdateManagerAsync(mgrDownloadUrl, RootDir, mgrRemote);
+                    if (updated)
+                    {
+                        ConsoleMenu.WriteOk("Обновление запущено. Приложение будет перезапущено.");
+                        Environment.Exit(0);
+                        return;
+                    }
+                }
+            }
+        }
+        catch { }
+
+        // ── Этап 2: Проверка обновлений zapret core ──
+        try
+        {
+            var (remote, local) = await coreUpdateTask;
             if (remote != null && remote != local)
             {
-                ConsoleMenu.WriteWarn($"Доступна новая версия zapret: {remote} (у вас: {local ?? "?"})");
-                var dlPage = Cfg.Repositories.ZapretCore.DownloadPage ?? "";
-                if (!silent && !string.IsNullOrWhiteSpace(dlPage) && ConsoleMenu.Confirm("Открыть страницу загрузки?"))
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dlPage) { UseShellExecute = true });
+                ConsoleMenu.WriteWarn($"Доступна новая версия zapret core: {remote} (у вас: {local ?? "?"})");
+                if (!silent && ConsoleMenu.Confirm("Обновить файлы zapret core (bin, strategies, lists)?"))
+                {
+                    await GitHubUpdater.UpdateZapretCoreFilesAsync(Cfg, RootDir);
+                }
+                else if (!silent)
+                {
+                    var dlPage = Cfg.Repositories.ZapretCore.DownloadPage ?? "";
+                    if (!string.IsNullOrWhiteSpace(dlPage) && ConsoleMenu.Confirm("Открыть страницу загрузки вручную?"))
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dlPage) { UseShellExecute = true });
+                }
             }
         }
         catch { }
@@ -614,10 +797,17 @@ class Program
             switch (modeChoice)
             {
                 case "1":
-                    var scores = await StrategyTester.RunAllAsync(RootDir, Cfg.Diagnostics.CheckTargets, winwsExe);
-                    StrategyTester.PrintSummary(scores);
-                    var best = StrategyTester.GetBest(scores);
-                    if (best != null) { chosenBat = best.FullPath; ConsoleMenu.WriteOk($"Лучшая: {best.Name}"); }
+                    var targets = StrategyTester.LoadTargets(RootDir, Cfg.Diagnostics.CheckTargets);
+                    var allResults = await StrategyTester.RunStandardTestsAsync(RootDir, batFiles, targets, winwsExe);
+                    var analytics = StrategyTester.ComputeAnalytics(allResults);
+                    StrategyTester.PrintAnalytics(analytics);
+                    StrategyTester.SaveStandardResults(RootDir, allResults, analytics);
+                    var bestName = StrategyTester.GetBestConfig(analytics);
+                    if (bestName != null)
+                    {
+                        var bestFile = batFiles.FirstOrDefault(f => f.Name == bestName);
+                        if (bestFile != null) { chosenBat = bestFile.FullName; ConsoleMenu.WriteOk($"Лучшая: {bestName}"); }
+                    }
                     break;
                 case "2":
                     Console.WriteLine();
@@ -703,22 +893,37 @@ class Program
         Console.Clear();
         ConsoleMenu.WriteHeader("ТЕСТ СТРАТЕГИЙ И УСТАНОВКА");
         var winwsExe = Path.Combine(BinDir, "winws.exe");
-        var scores = await StrategyTester.RunAllAsync(RootDir, Cfg.Diagnostics.CheckTargets, winwsExe);
-        StrategyTester.PrintSummary(scores);
-        var best = StrategyTester.GetBest(scores);
-        if (best != null)
+        var files = StrategyReader.GetStrategyFiles(RootDir);
+        if (files.Length == 0)
         {
-            ConsoleMenu.WriteStep($"Установка лучшей стратегии: {best.Name}");
-            var gf = GameFilter.Get(UtilsDir);
-            var wa = StrategyReader.ParseArgs(best.FullPath, BinDir, ListsDir, gf.Tcp, gf.Udp);
-            WinServiceManager.Install("zapret", "zapret", "Zapret DPI bypass", $"\"{winwsExe}\" {wa}");
-            ConsoleMenu.WriteOk("Служба zapret установлена!");
-            await Task.Delay(5000);
-            var post = await AccessChecker.CheckAllAsync(Cfg.Diagnostics.CheckTargets);
-            foreach (var r in post)
+            ConsoleMenu.WriteError("Стратегии general*.bat не найдены");
+            ConsoleMenu.PauseAny(); return;
+        }
+
+        var targets = StrategyTester.LoadTargets(RootDir, Cfg.Diagnostics.CheckTargets);
+        var allResults = await StrategyTester.RunStandardTestsAsync(RootDir, files, targets, winwsExe);
+        var analytics = StrategyTester.ComputeAnalytics(allResults);
+        StrategyTester.PrintAnalytics(analytics);
+        StrategyTester.SaveStandardResults(RootDir, allResults, analytics);
+
+        var bestConfig = StrategyTester.GetBestConfig(analytics);
+        if (bestConfig != null)
+        {
+            var bestFile = files.FirstOrDefault(f => f.Name == bestConfig);
+            if (bestFile != null)
             {
-                if (r.Reachable) ConsoleMenu.WriteOk($"{r.Name}: {r.Detail}");
-                else             ConsoleMenu.WriteWarn($"{r.Name}: недоступен");
+                ConsoleMenu.WriteStep($"Установка лучшей стратегии: {bestConfig}");
+                var gf = GameFilter.Get(UtilsDir);
+                var wa = StrategyReader.ParseArgs(bestFile.FullName, BinDir, ListsDir, gf.Tcp, gf.Udp);
+                WinServiceManager.Install("zapret", "zapret", "Zapret DPI bypass", $"\"{winwsExe}\" {wa}");
+                ConsoleMenu.WriteOk("Служба zapret установлена!");
+                await Task.Delay(5000);
+                var post = await AccessChecker.CheckAllAsync(Cfg.Diagnostics.CheckTargets);
+                foreach (var r in post)
+                {
+                    if (r.Reachable) ConsoleMenu.WriteOk($"{r.Name}: {r.Detail}");
+                    else             ConsoleMenu.WriteWarn($"{r.Name}: недоступен");
+                }
             }
         }
         else ConsoleMenu.WriteInfo("Стратегия для установки не выбрана");
