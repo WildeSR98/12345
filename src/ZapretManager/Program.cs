@@ -357,12 +357,6 @@ class Program
             {
                 await GitHubUpdater.UpdateZapretCoreFilesAsync(Cfg, RootDir);
             }
-            else
-            {
-                var dlPage = Cfg.Repositories.ZapretCore.DownloadPage ?? "";
-                if (!string.IsNullOrWhiteSpace(dlPage) && ConsoleMenu.Confirm("Открыть страницу загрузки вручную?"))
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dlPage) { UseShellExecute = true });
-            }
         }
 
         ConsoleMenu.PauseAny();
@@ -669,12 +663,10 @@ class Program
                 {
                     await GitHubUpdater.UpdateZapretCoreFilesAsync(Cfg, RootDir);
                 }
-                else if (!silent)
-                {
-                    var dlPage = Cfg.Repositories.ZapretCore.DownloadPage ?? "";
-                    if (!string.IsNullOrWhiteSpace(dlPage) && ConsoleMenu.Confirm("Открыть страницу загрузки вручную?"))
-                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dlPage) { UseShellExecute = true });
-                }
+            }
+            else if (remote != null)
+            {
+                ConsoleMenu.WriteOk($"Zapret core актуален: {local}");
             }
         }
         catch { }
@@ -848,17 +840,35 @@ class Program
         }
 
         // Установка службы
-        var gf2 = GameFilter.Get(UtilsDir);
-        var wArgs = StrategyReader.ParseArgs(chosenBat, BinDir, ListsDir, gf2.Tcp, gf2.Udp);
-        ConsoleMenu.WriteStep($"Установка службы Windows: {Path.GetFileName(chosenBat)}");
-        WinServiceManager.Install("zapret", "zapret", "Zapret DPI bypass", $"\"{winwsExe}\" {wArgs}");
         try
         {
-            using var key = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"System\CurrentControlSet\Services\zapret");
-            key?.SetValue("zapret-discord-youtube", Path.GetFileNameWithoutExtension(chosenBat));
+            var gf2 = GameFilter.Get(UtilsDir);
+            var wArgs = StrategyReader.ParseArgs(chosenBat, BinDir, ListsDir, gf2.Tcp, gf2.Udp);
+            if (string.IsNullOrWhiteSpace(wArgs))
+            {
+                ConsoleMenu.WriteError($"Не удалось извлечь аргументы из {Path.GetFileName(chosenBat)}");
+                ConsoleMenu.WriteInfo("Попробуйте другой конфиг или проверьте формат bat-файла");
+                if (!silent) ConsoleMenu.PauseAny();
+                return;
+            }
+            ConsoleMenu.WriteStep($"Установка службы Windows: {Path.GetFileName(chosenBat)}");
+            Logger.Info($"Аргументы winws: {wArgs}");
+            WinServiceManager.Install("zapret", "zapret", "Zapret DPI bypass", $"\"{winwsExe}\" {wArgs}");
+            try
+            {
+                using var key = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"System\CurrentControlSet\Services\zapret");
+                key?.SetValue("zapret-discord-youtube", Path.GetFileNameWithoutExtension(chosenBat));
+            }
+            catch { }
+            ConsoleMenu.WriteOk("Служба 'zapret' установлена и запущена");
         }
-        catch { }
-        ConsoleMenu.WriteOk("Служба 'zapret' установлена и запущена");
+        catch (Exception ex)
+        {
+            ConsoleMenu.WriteError($"Ошибка установки службы: {ex.Message}");
+            Logger.Error($"Service install failed: {ex}");
+            if (!silent) ConsoleMenu.PauseAny();
+            return;
+        }
 
         // Пост-проверка
         if (!silent)
